@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # שלב 1: פינוי מקום בדיסק
+      # שלב 1: פינוי מקום (חשוב מאוד)
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -23,7 +23,7 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      # שלב 2: הגדרת Java 17 (קריטי לאנדרואיד)
+      # שלב 2: הגדרת Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: '3.10'
 
-      # שלב 4: התקנת תלויות מערכת נקיות (בלי GStreamer הבעייתי!)
+      # שלב 4: התקנת תלויות מערכת (הרשימה הבטוחה שעבדה)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -53,7 +53,7 @@ jobs:
           pip install --upgrade pip
           pip install buildozer cython==0.29.36
 
-      # שלב 6: יצירת קובץ הגדרות תקין מאפס
+      # שלב 6: יצירת קובץ הגדרות יציב (ללא master branch וללא סיכונים)
       - name: Create Buildozer Spec
         run: |
           rm -f buildozer.spec
@@ -73,16 +73,15 @@ jobs:
           android.minapi = 21
           android.accept_sdk_license = True
           android.archs = arm64-v8a
-          p4a.branch = master
           log_level = 2
           EOT
 
-      # שלב 7: ביצוע הבנייה (השתמשתי ב-yes כדי לוודא ששום דבר לא נתקע)
+      # שלב 7: ביצוע הבנייה (מחקתי את yes | כדי לראות מה קורה באמת)
       - name: Build with Buildozer
         run: |
-          yes | buildozer android debug
+          buildozer android debug
 
-      # שלב 8: העלאת הקובץ המוכן
+      # שלב 8: העלאת הקובץ
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
