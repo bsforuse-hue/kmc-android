@@ -6,12 +6,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04 # שימוש בגרסה יציבה יותר ומוכחת
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v4
 
-      # שלב 1: פינוי מקום בדיסק
+      # שלב 1: פינוי מקום
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -23,13 +23,13 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      # שלב 2: הגדרת Python
+      # שלב 2: הגדרת פייתון
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # גרסה 3.10 יציבה יותר עם Buildozer
+          python-version: '3.10'
 
-      # שלב 3: התקנת רכיבי מערכת (רשימה מורחבת למניעת שגיאות)
+      # שלב 3: התקנת רכיבי מערכת (הסרתי את הספרייה הבעייתית GStreamer)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -37,8 +37,7 @@ jobs:
             build-essential git python3-dev \
             ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
             libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
-            zlib1g-dev libgstreamer1.0-dev gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good libltdl-dev libffi-dev libssl-dev \
+            zlib1g-dev libltdl-dev libffi-dev libssl-dev \
             autoconf automake libtool zip unzip openjdk-17-jdk \
             cmake gettext pkg-config
 
@@ -48,7 +47,7 @@ jobs:
           pip install --upgrade pip
           pip install buildozer cython==0.29.36
 
-      # שלב 5: תיקון אוטומטי של קובץ ההגדרות (מונע את הקריסה של הרישיון)
+      # שלב 5: תיקון אוטומטי של הקובץ ואישור רישיונות
       - name: Fix Buildozer Spec
         run: |
           # מוודא שהרישיון מאושר אוטומטית
@@ -58,7 +57,7 @@ jobs:
           # תיקון נוסף לארכיטקטורה
           sed -i 's/# android.archs = arm64-v8a, armeabi-v7a/android.archs = arm64-v8a/' buildozer.spec
 
-      # שלב 6: ביצוע הבנייה (עם לוגים מפורטים למקרה של תקלה)
+      # שלב 6: ביצוע הבנייה
       - name: Build with Buildozer
         run: |
           buildozer android debug --verbose
