@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # שלב 1: פינוי מקום
+      # שלב 1: פינוי מקום (חובה)
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -23,20 +23,20 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      # שלב 2: הגדרת Java 17 (חובה לגרסאות חדשות)
+      # שלב 2: Java 17 (התקן הנדרש כיום)
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # שלב 3: הגדרת Python
+      # שלב 3: Python 3.10
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # שלב 4: התקנת תלויות מערכת (רשימה נקייה ובטוחה)
+      # שלב 4: התקנת תלויות מערכת (רשימה נקייה)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -48,25 +48,26 @@ jobs:
             autoconf automake libtool zip unzip cmake gettext pkg-config \
             libncurses5-dev libncursesw5-dev libtinfo5
 
-      # שלב 5: התקנת Buildozer וכלים נוספים (תיקון גרסאות קריטי)
-      - name: Install Buildozer
+      # שלב 5: התקנת Buildozer וגרסאות ספציפיות של Kivy/Cython
+      # זה התיקון הקריטי: גרסאות חדשות מדי שוברות את הבנייה
+      - name: Install Buildozer & Dependencies
         run: |
           pip install --upgrade pip
-          # התקנת גרסה ספציפית של Cython שמתאימה ל-Kivy
-          pip install "cython<3" 
-          # תיקון לבעיית setuptools מוכרת
           pip install --upgrade setuptools
+          pip install "Cython==0.29.36"
+          pip install "kivy==2.2.1"
           pip install buildozer
 
-      # שלב 6: ניקוי שאריות ישנות
-      - name: Clean Buildozer
+      # שלב 6: מחיקת קבצים ישנים ויצירת סביבה נקייה
+      - name: Clean Environment
         run: |
           rm -rf .buildozer
           rm -rf bin
           mkdir -p ~/.android
           touch ~/.android/repositories.cfg
 
-      # שלב 7: יצירת קובץ הגדרות
+      # שלב 7: יצירת קובץ הגדרות חדש (Buildozer Spec)
+      # שים לב: הגדרתי כאן את הגרסאות בצורה מפורשת
       - name: Create Buildozer Spec
         run: |
           rm -f buildozer.spec
@@ -78,18 +79,28 @@ jobs:
           source.dir = .
           source.include_exts = py,png,jpg,kv,atlas
           version = 1.0
-          requirements = python3,kivy
+          
+          # שימוש בגרסאות מקובעות
+          requirements = python3,kivy==2.2.1
+          
           orientation = portrait
           fullscreen = 0
           android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE
+          
+          # הגדרות API עדכניות
           android.api = 33
           android.minapi = 21
+          android.ndk = 25b
+          
           android.accept_sdk_license = True
           android.archs = arm64-v8a
+          
+          # לוגים מפורטים
           log_level = 2
           EOT
 
-      # שלב 8: בנייה ללא ה-yes (כדי שנראה שגיאות אמת אם יהיו)
+      # שלב 8: הבנייה עצמה
+      # הפקודה yes הוסרה כדי לא להסתיר שגיאות
       - name: Build with Buildozer
         run: |
           buildozer android debug
