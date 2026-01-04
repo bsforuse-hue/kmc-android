@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # שלב 1: פינוי מקום
+      # 1. פינוי מקום
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -23,20 +23,20 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      # שלב 2: הגדרת Java 17
-      - name: Set up JDK 17
+      # 2. Java 17 (חובה לכלי אנדרואיד)
+      - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # שלב 3: הגדרת Python 3.10
-      - name: Set up Python
+      # 3. Python 3.9 (הגרסה הכי יציבה ל-Kivy כרגע)
+      - name: Setup Python 3.9
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.9'
 
-      # שלב 4: התקנת תלויות מערכת
+      # 4. התקנת תלויות מערכת
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -48,64 +48,45 @@ jobs:
             autoconf automake libtool zip unzip cmake gettext pkg-config \
             libncurses5-dev libncursesw5-dev libtinfo5
 
-      # שלב 5: התקנת Buildozer עם תיקון ה-Setuptools (החלק הקריטי!)
-      - name: Install Buildozer & Fix Dependencies
+      # 5. התקנת Buildozer וגרסאות ספציפיות
+      - name: Install Buildozer & Libs
         run: |
           pip install --upgrade pip
-          # שינמוך קריטי: גרסאות חדשות של setuptools שוברות את הבנייה
-          pip install "setuptools==65.5.1"
-          # גרסאות יציבות של Kivy ו-Cython
+          pip install --upgrade setuptools
+          # גרסאות זהב: פייתון 3.9 + Kivy 2.2.1 + Cython ישן
           pip install "Cython==0.29.36"
-          pip install "kivy==2.3.0"
-          pip install buildozer
+          pip install "kivy==2.2.1"
+          pip install "buildozer==1.5.0"
 
-      # שלב 6: ניקוי שאריות
-      - name: Clean Environment
+      # 6. אתחול Buildozer (יוצר קובץ הגדרות מקורי ותקין)
+      - name: Init Buildozer
+        run: buildozer init
+
+      # 7. עריכת קובץ ההגדרות (שינוי ל-API 31 היציב)
+      - name: Configure Buildozer
         run: |
-          rm -rf .buildozer
-          rm -rf bin
-          mkdir -p ~/.android
-          touch ~/.android/repositories.cfg
+          # שינוי שם האפליקציה
+          sed -i 's/title = My Application/title = KMC Analyzer/' buildozer.spec
+          sed -i 's/package.name = myapp/package.name = kmcanalzyer/' buildozer.spec
+          sed -i 's/package.domain = org.test/package.domain = org.kmc/' buildozer.spec
+          
+          # שינוי דרישות
+          sed -i 's/requirements = python3,kivy/requirements = python3,kivy==2.2.1/' buildozer.spec
+          
+          # הגדרות אנדרואיד - ירידה לגרסה 31 (יציב) במקום 34 (בעייתי)
+          sed -i 's/android.api = 27/android.api = 31/' buildozer.spec
+          sed -i 's/android.minapi = 21/android.minapi = 21/' buildozer.spec
+          sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
+          sed -i 's/# android.archs = arm64-v8a, armeabi-v7a/android.archs = arm64-v8a/' buildozer.spec
+          
+          # הגדלת רמת הלוגים כדי שנראה שגיאות
+          sed -i 's/log_level = 1/log_level = 2/' buildozer.spec
 
-      # שלב 7: יצירת קובץ הגדרות מעודכן
-      - name: Create Buildozer Spec
-        run: |
-          rm -f buildozer.spec
-          cat <<EOT >> buildozer.spec
-          [app]
-          title = KMC Analyzer
-          package.name = kmcanalzyer
-          package.domain = org.test
-          source.dir = .
-          source.include_exts = py,png,jpg,kv,atlas
-          version = 1.0
-          
-          # דרישות
-          requirements = python3,kivy==2.3.0
-          
-          orientation = portrait
-          fullscreen = 0
-          android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE
-          
-          # הגדרות אנדרואיד מעודכנות
-          android.api = 34
-          android.minapi = 21
-          android.ndk = 25b
-          android.accept_sdk_license = True
-          android.archs = arm64-v8a
-          
-          # שינוי שיטת האריזה (פותר בעיות עם setuptools)
-          p4a.hook = 
-          
-          log_level = 2
-          EOT
+      # 8. בנייה (ללא yes, כי הרישיון כבר אושר בקובץ למעלה)
+      - name: Build APK
+        run: buildozer android debug
 
-      # שלב 8: בנייה בוורבוס מלא (כדי שנראה כל פיפס)
-      - name: Build with Buildozer
-        run: |
-          buildozer android debug --verbose
-
-      # שלב 9: העלאה
+      # 9. העלאה
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
