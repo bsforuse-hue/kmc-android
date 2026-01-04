@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: '3.10'
 
-      # שלב 3: התקנת תלויות (ללא gstreamer הבעייתי)
+      # שלב 3: התקנת תלויות (הרשימה הנקייה שעובדת)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -47,19 +47,33 @@ jobs:
           pip install --upgrade pip
           pip install buildozer cython==0.29.36
 
-      # שלב 5: תיקון עדין של קובץ ההגדרות (ללא הדבקת שורות)
-      - name: Fix Buildozer Spec
+      # שלב 5: יצירת קובץ הגדרות חדש ונקי (מונע שגיאות בקובץ הישן)
+      - name: Create Buildozer Spec
         run: |
-          # שינוי הרישיון ל-True בצורה בטוחה
-          sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
-          
-          # הגדרת ארכיטקטורה
-          sed -i 's/# android.archs = arm64-v8a, armeabi-v7a/android.archs = arm64-v8a/' buildozer.spec
+          rm -f buildozer.spec
+          cat <<EOT >> buildozer.spec
+          [app]
+          title = KMC Analyzer
+          package.name = kmcanalzyer
+          package.domain = org.test
+          source.dir = .
+          source.include_exts = py,png,jpg,kv,atlas
+          version = 1.0
+          requirements = python3,kivy
+          orientation = portrait
+          fullscreen = 0
+          android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE
+          android.api = 31
+          android.minapi = 21
+          android.accept_sdk_license = True
+          android.archs = arm64-v8a
+          p4a.branch = master
+          EOT
 
       # שלב 6: ביצוע הבנייה
       - name: Build with Buildozer
         run: |
-          # הפקודה yes עונה אוטומטית על שאלות שיכולות לצוץ
+          # הפקודה yes מאשרת כל שאלה שתקפוץ
           yes | buildozer android debug
 
       # שלב 7: העלאת הקובץ המוכן
