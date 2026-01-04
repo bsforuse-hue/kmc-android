@@ -23,7 +23,7 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      # שלב 2: הגדרת Java 17 (הגרסה התקינה)
+      # שלב 2: הגדרת Java 17 (חובה לגרסאות חדשות)
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: '3.10'
 
-      # שלב 4: התקנת תלויות (רשימה מורחבת ונקייה)
+      # שלב 4: התקנת תלויות מערכת (רשימה נקייה ובטוחה)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -48,19 +48,25 @@ jobs:
             autoconf automake libtool zip unzip cmake gettext pkg-config \
             libncurses5-dev libncursesw5-dev libtinfo5
 
-      # שלב 5: התקנת Buildozer
+      # שלב 5: התקנת Buildozer וכלים נוספים (תיקון גרסאות קריטי)
       - name: Install Buildozer
         run: |
           pip install --upgrade pip
-          pip install buildozer cython==0.29.36
+          # התקנת גרסה ספציפית של Cython שמתאימה ל-Kivy
+          pip install "cython<3" 
+          # תיקון לבעיית setuptools מוכרת
+          pip install --upgrade setuptools
+          pip install buildozer
 
-      # שלב 6: ניקוי שאריות בנייה ישנות (קריטי!)
+      # שלב 6: ניקוי שאריות ישנות
       - name: Clean Buildozer
         run: |
           rm -rf .buildozer
           rm -rf bin
+          mkdir -p ~/.android
+          touch ~/.android/repositories.cfg
 
-      # שלב 7: יצירת קובץ הגדרות חדש
+      # שלב 7: יצירת קובץ הגדרות
       - name: Create Buildozer Spec
         run: |
           rm -f buildozer.spec
@@ -80,14 +86,13 @@ jobs:
           android.minapi = 21
           android.accept_sdk_license = True
           android.archs = arm64-v8a
-          p4a.branch = master
           log_level = 2
           EOT
 
-      # שלב 8: ביצוע הבנייה (החזרתי את yes כי עכשיו עם Java 17 זה בטוח)
+      # שלב 8: בנייה ללא ה-yes (כדי שנראה שגיאות אמת אם יהיו)
       - name: Build with Buildozer
         run: |
-          yes | buildozer android debug
+          buildozer android debug
 
       # שלב 9: העלאת הקובץ
       - name: Upload APK
