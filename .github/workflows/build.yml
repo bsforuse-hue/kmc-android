@@ -6,12 +6,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04 # שימוש בגרסה יציבה יותר ומוכחת
 
     steps:
       - uses: actions/checkout@v4
 
-      # Step 1: Free Disk Space
+      # שלב 1: פינוי מקום בדיסק
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -23,13 +23,13 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      # Step 2: Setup Python
+      # שלב 2: הגדרת Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10' # גרסה 3.10 יציבה יותר עם Buildozer
 
-      # Step 3: Install System Dependencies (Manual install to avoid Docker error)
+      # שלב 3: התקנת רכיבי מערכת (רשימה מורחבת למניעת שגיאות)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -39,20 +39,31 @@ jobs:
             libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
             zlib1g-dev libgstreamer1.0-dev gstreamer1.0-plugins-base \
             gstreamer1.0-plugins-good libltdl-dev libffi-dev libssl-dev \
-            autoconf automake libtool zip unzip openjdk-17-jdk
+            autoconf automake libtool zip unzip openjdk-17-jdk \
+            cmake gettext pkg-config
 
-      # Step 4: Install Buildozer
+      # שלב 4: התקנת Buildozer
       - name: Install Buildozer
         run: |
           pip install --upgrade pip
-          pip install buildozer cython
+          pip install buildozer cython==0.29.36
 
-      # Step 5: Build APK
+      # שלב 5: תיקון אוטומטי של קובץ ההגדרות (מונע את הקריסה של הרישיון)
+      - name: Fix Buildozer Spec
+        run: |
+          # מוודא שהרישיון מאושר אוטומטית
+          sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
+          # אם השורה לא קיימת, מוסיף אותה בסוף
+          echo "android.accept_sdk_license = True" >> buildozer.spec
+          # תיקון נוסף לארכיטקטורה
+          sed -i 's/# android.archs = arm64-v8a, armeabi-v7a/android.archs = arm64-v8a/' buildozer.spec
+
+      # שלב 6: ביצוע הבנייה (עם לוגים מפורטים למקרה של תקלה)
       - name: Build with Buildozer
         run: |
-          yes | buildozer android debug
+          buildozer android debug --verbose
 
-      # Step 6: Upload Artifact
+      # שלב 7: העלאת הקובץ המוכן
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
