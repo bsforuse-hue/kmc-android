@@ -7,7 +7,6 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
 from kivy.uix.filechooser import FileChooserListView
 from kivy.utils import platform
-from kivy.metrics import dp
 import os
 import re
 import time
@@ -17,32 +16,43 @@ class KMCAndroidApp(App):
         self.check_permissions_startup()
         self.last_scanned_path = "/storage/emulated/0/Download"
         
+        # מבנה ראשי: כותרת למעלה, כפתורים למטה, לוג באמצע
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
-        self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1), size_hint_y=None, height=dp(50)))
+        # 1. כותרת (10% מהמסך)
+        self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1), size_hint_y=0.1))
         
-        self.log_label = Label(text="Ready. Click 'DETECT USB'...", size_hint_y=None, markup=True)
+        # 2. לוגים (50% מהמסך - גמיש)
+        self.log_label = Label(text="System Ready.\nClick 'DETECT USB (JAVA)' to start.", size_hint_y=None, markup=True)
         self.log_label.bind(texture_size=self.log_label.setter('size'))
-        scroll = ScrollView(size_hint_y=1) 
+        
+        scroll = ScrollView(size_hint_y=0.5)
         scroll.add_widget(self.log_label)
         self.layout.add_widget(scroll)
         
-        btn_fix = Button(text="FIX PERMISSIONS", size_hint_y=None, height=dp(60), background_color=(0.8, 0, 0, 1))
+        # 3. כפתור תיקון הרשאות (10%)
+        btn_fix = Button(text="FIX PERMISSIONS", size_hint_y=0.1, background_color=(0.8, 0, 0, 1))
         btn_fix.bind(on_press=self.open_settings_manual)
         self.layout.add_widget(btn_fix)
         
-        btn_browse = Button(text="OPEN BROWSER / DETECT USB", size_hint_y=None, height=dp(80), background_color=(1, 0.6, 0.2, 1))
+        # 4. כפתור פתיחת הסייר / USB (15%)
+        btn_browse = Button(text="OPEN BROWSER / USB", size_hint_y=0.15, background_color=(1, 0.6, 0.2, 1))
         btn_browse.bind(on_press=self.show_load_popup)
         self.layout.add_widget(btn_browse)
 
-        bottom_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=None, height=dp(60))
+        # 5. כפתורים תחתונים - שמירה ויציאה (15%)
+        bottom_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=0.15)
+        
         btn_save = Button(text="SAVE LOG", background_color=(0, 0.8, 0, 1))
         btn_save.bind(on_press=self.save_log)
+        
         btn_exit = Button(text="EXIT", background_color=(0.3, 0.3, 0.3, 1))
         btn_exit.bind(on_press=self.exit_app)
         
         bottom_layout.add_widget(btn_save)
         bottom_layout.add_widget(btn_exit)
+        
+        self.layout.add_widget(bottom_layout)
         return self.layout
 
     def check_permissions_startup(self):
@@ -56,23 +66,25 @@ class KMCAndroidApp(App):
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
         
-        btn_usb = Button(text="DETECT USB (Try All Paths)", size_hint_y=None, height=dp(60), background_color=(0, 0.5, 0.8, 1))
-        btn_usb.bind(on_press=self.find_usb_multipath)
+        # כפתור ה-USB החדש
+        btn_usb = Button(text="DETECT USB (Official Java API)", size_hint_y=0.15, background_color=(0, 0.5, 0.8, 1))
+        btn_usb.bind(on_press=self.find_usb_java_native)
         content.add_widget(btn_usb)
 
+        # התחלה מתיקיית ההורדות
         start_path = "/storage/emulated/0/Download"
         if not os.path.exists(start_path): start_path = "/"
 
         self.file_chooser = FileChooserListView(
             path=start_path, 
-            rootpath="/", # פתחנו את הגישה לכל המערכת
+            rootpath="/storage", 
             dirselect=True, 
             filters=['*.req', '*.rsp', '*']
         )
         content.add_widget(self.file_chooser)
         
-        btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=5)
-        btn_select = Button(text="Scan Folder", background_color=(0, 1, 0, 1))
+        btn_layout = BoxLayout(size_hint_y=0.15, spacing=5)
+        btn_select = Button(text="Scan This Folder", background_color=(0, 1, 0, 1))
         btn_select.bind(on_press=self.load_folder)
         btn_cancel = Button(text="Cancel", background_color=(0.5, 0.5, 0.5, 1))
         btn_cancel.bind(on_press=self.dismiss_popup)
@@ -84,48 +96,77 @@ class KMCAndroidApp(App):
         self._popup = Popup(title="File Browser", content=content, size_hint=(0.95, 0.95))
         self._popup.open()
 
-    def find_usb_multipath(self, instance):
-        self.log("Scanning /proc/mounts...", "cccccc")
-        usb_found = False
+    def find_usb_java_native(self, instance):
+        self.log("Asking Android for Storage Volumes...", "cccccc")
         
-        try:
-            with open("/proc/mounts", "r") as f:
-                lines = f.readlines()
-            
-            for line in lines:
-                if "/mnt/media_rw" in line:
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        raw_mount_path = parts[1] # נתיב מקורי: /mnt/media_rw/E65A-046E
-                        drive_id = os.path.basename(raw_mount_path)
-                        
-                        self.log(f"Found ID: {drive_id}", "00ff00")
-                        
-                        # רשימת כל הנתיבים האפשריים לבדיקה
-                        paths_to_try = [
-                            f"/storage/{drive_id}",          # סטנדרטי
-                            raw_mount_path,                  # מקורי (/mnt/media_rw/...)
-                            f"/mnt/usb/{drive_id}",          # נדיר
-                            f"/storage/{drive_id.lower()}",  # אותיות קטנות
-                        ]
-                        
-                        for p in paths_to_try:
-                            self.log(f"Trying: {p}", "cccccc")
-                            if os.path.exists(p) and os.access(p, os.R_OK):
-                                # בינגו!
-                                self.file_chooser.path = p
-                                self.file_chooser._update_files()
-                                self.log(f"SUCCESS! Opened: {p}", "00ff00")
-                                usb_found = True
-                                break
-                            
-                        if usb_found: break
+        if platform != 'android':
+            self.log("Not on Android!", "ff0000")
+            return
 
-            if not usb_found:
-                self.log("USB ID found but path unreachable.", "ff5555")
+        found_usb = False
+        try:
+            from jnius import autoclass, cast
+            
+            # גישה לשירות האחסון של אנדרואיד
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            Context = autoclass('android.content.Context')
+            StorageManager = autoclass('android.os.storage.StorageManager')
+            
+            context = PythonActivity.mActivity.getApplicationContext()
+            storage_manager = cast(StorageManager, context.getSystemService(Context.STORAGE_SERVICE))
+            
+            # קבלת רשימת כל הכוננים (Volumes)
+            storage_volumes = storage_manager.getStorageVolumes()
+            
+            for volume in storage_volumes:
+                # בדיקה אם הכונן הוא "נשלף" (Removable) - כלומר USB או SD
+                if volume.isRemovable():
+                    # קבלת הנתיב (דורש API 30+ שיש לך)
+                    directory = volume.getDirectory()
+                    if directory:
+                        path = directory.getAbsolutePath()
+                        self.log(f"Found Removable: {path}", "00ff00")
+                        
+                        if os.path.exists(path):
+                            self.file_chooser.path = path
+                            self.file_chooser._update_files()
+                            self.log("SUCCESS: USB Opened!", "00ff00")
+                            found_usb = True
+                            return # מצאנו, יוצאים
+
+            if not found_usb:
+                self.log("Android reported no removable drives.", "ff5555")
+                self.log("Try reconnecting the USB.", "ffff00")
 
         except Exception as e:
-            self.log(f"Error: {e}", "ff0000")
+            self.log(f"Java Error: {e}", "ff0000")
+            # ניסיון אחרון למקרה שה-API נכשל
+            self.find_usb_legacy_fallback()
+
+    def find_usb_legacy_fallback(self):
+        # תוכנית גיבוי: חיפוש בתיקיות האפליקציה החיצוניות
+        self.log("Trying fallback method...", "cccccc")
+        try:
+            from jnius import autoclass
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            context = PythonActivity.mActivity.getApplicationContext()
+            files_dirs = context.getExternalFilesDirs(None)
+            
+            for f in files_dirs:
+                if f is None: continue
+                path = f.getAbsolutePath()
+                if "emulated" not in path:
+                    # זה חיצוני! בוא נחתוך את הנתיב לשורש
+                    parts = path.split("/")
+                    if len(parts) > 2:
+                        usb_root = f"/{parts[1]}/{parts[2]}" # /storage/XXXX-XXXX
+                        if os.path.exists(usb_root):
+                             self.file_chooser.path = usb_root
+                             self.file_chooser._update_files()
+                             self.log(f"Fallback found: {usb_root}", "00ff00")
+                             return
+        except: pass
+        self.log("Fallback failed too.", "ff0000")
 
     def open_settings_manual(self, instance):
         if platform == 'android':
