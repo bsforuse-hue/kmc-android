@@ -1,4 +1,4 @@
-name: Build Android APK (Diagnostic)
+name: Build Android APK
 on:
   push:
     branches: [ main, master ]
@@ -10,13 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # שלב בדיקה: האם main.py קיים?
-      # אם השלב הזה נכשל או מראה שאין main.py, הבנייה תיכשל בהמשך
-      - name: Check File Structure
-        run: |
-          echo "Listing all files in repository:"
-          ls -R
-
+      # 1. ניקוי דיסק מוגבר
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -25,19 +19,23 @@ jobs:
           dotnet: true
           haskell: true
           large-packages: true
+          docker-images: true
           swap-storage: true
 
+      # 2. הגדרת Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Python 3.10
+      # 3. הגדרת Python 3.10
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
+      # 4. התקנת תלויות מערכת (רשימה מורחבת לכיסוי כל האפשרויות)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -47,15 +45,18 @@ jobs:
             libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
             zlib1g-dev libltdl-dev libffi-dev libssl-dev \
             autoconf automake libtool zip unzip cmake gettext pkg-config \
-            libncurses5-dev libncursesw5-dev libtinfo5
+            libncurses5-dev libncursesw5-dev libtinfo5 \
+            libtool-bin
 
-      - name: Install Buildozer & Kivy
+      # 5. התקנת הכלים
+      - name: Install Buildozer & Kivy Stack
         run: |
           pip install --upgrade pip
           pip install "cython==3.0.11"
           pip install "kivy==2.3.0"
           pip install "buildozer==1.5.0"
 
+      # 6. יצירת קובץ הגדרות עם התיקון הקריטי (p4a.branch)
       - name: Create Buildozer Spec
         run: |
           rm -f buildozer.spec
@@ -81,18 +82,21 @@ jobs:
           android.accept_sdk_license = True
           android.archs = arm64-v8a
           
+          # התיקון הקריטי: שימוש בגרסת הפיתוח שמתאימה לכלים החדשים
+          p4a.branch = develop
+          
           [buildozer]
           log_level = 2
           warn_on_root = 1
           EOT
 
-      # שלב הבנייה הדיאגנוסטי
-      # שומר את הלוג לקובץ, ואם נכשל - מציג את הסוף שלו
+      # 7. בנייה עם חשיפת שגיאות מלאה
+      # אם נכשל: מדפיס את *כל* הקובץ (cat) כדי ששום דבר לא יוסתר
       - name: Build APK
         run: |
-          buildozer android debug > build_output.txt 2>&1 || (echo "BUILD FAILED! Showing last 200 lines of log:" && tail -n 200 build_output.txt && exit 1)
+          yes | buildozer android debug > build_output.txt 2>&1 || (echo "BUILD FAILED! DUMPING LOG:" && cat build_output.txt && exit 1)
 
-      # העלאת ה-APK אם הצליח
+      # 8. העלאת ה-APK
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -100,10 +104,10 @@ jobs:
           name: kmc-app-apk
           path: bin/*.apk
 
-      # העלאת הלוג אם נכשל (כדי שנוכל לקרוא אותו)
-      - name: Upload Logs
+      # 9. העלאת הלוג כקובץ (גיבוי)
+      - name: Upload Log Artifact
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-failure-log
+          name: full-build-log
           path: build_output.txt
