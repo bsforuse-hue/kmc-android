@@ -16,20 +16,19 @@ MSG_TYPES = {0x01: "REPLACE_ALL", 0x03: "ADD_AUTH (KMAC)", 0x41: "RESPONSE"}
 class KMCAndroidApp(App):
     def build(self):
         self.check_permissions_startup()
-        
         self.last_scanned_path = "/storage/emulated/0/Download"
         
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1)))
         
-        self.log_label = Label(text="Click 'AUTO-DETECT USB' to find drives", size_hint_y=None, markup=True)
+        # הנחיה מעודכנת למשתמש
+        self.log_label = Label(text="Click 'FORCE DETECT USB' to scan system mounts", size_hint_y=None, markup=True)
         self.log_label.bind(texture_size=self.log_label.setter('size'))
         scroll = ScrollView(size_hint=(1, 0.65))
         scroll.add_widget(self.log_label)
         self.layout.add_widget(scroll)
         
-        # כפתור תיקון הרשאות
-        btn_fix = Button(text="FIX PERMISSIONS (If Error 13)", size_hint=(1, 0.1), background_color=(1, 0, 0, 1))
+        btn_fix = Button(text="FIX PERMISSIONS", size_hint=(1, 0.1), background_color=(1, 0, 0, 1))
         btn_fix.bind(on_press=self.open_settings_manual)
         self.layout.add_widget(btn_fix)
         
@@ -77,23 +76,17 @@ class KMCAndroidApp(App):
     def save_log(self, instance):
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         filename = f"KMC_Log_{timestamp}.txt"
-        
-        # מנסה לשמור קודם כל בתיקייה שנסרקה
         target_path = os.path.join(self.last_scanned_path, filename)
         clean_text = re.sub(r'\[.*?\]', '', self.log_label.text)
-
         try:
-            with open(target_path, 'w', encoding='utf-8') as f:
-                f.write(clean_text)
+            with open(target_path, 'w', encoding='utf-8') as f: f.write(clean_text)
             self.log(f"\nSaved to: {target_path}", "00ff00")
         except:
-            # גיבוי לתיקיית ההורדות
             backup = f"/storage/emulated/0/Download/{filename}"
             try:
                 with open(backup, 'w', encoding='utf-8') as f: f.write(clean_text)
                 self.log(f"Saved to backup: {backup}", "ffff00")
-            except Exception as e:
-                self.log(f"Save Failed: {e}", "ff0000")
+            except Exception as e: self.log(f"Save Failed: {e}", "ff0000")
 
     def exit_app(self, instance):
         App.get_running_app().stop()
@@ -101,9 +94,9 @@ class KMCAndroidApp(App):
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
         
-        # כפתור הזיהוי החכם
-        btn_usb = Button(text="AUTO-DETECT USB (Java API)", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
-        btn_usb.bind(on_press=self.find_usb_via_android_api)
+        # שינינו את שם הכפתור והפונקציה
+        btn_usb = Button(text="FORCE DETECT USB (Linux Method)", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
+        btn_usb.bind(on_press=self.find_usb_via_linux_mounts)
         content.add_widget(btn_usb)
 
         start_path = "/storage/emulated/0/"
@@ -127,53 +120,51 @@ class KMCAndroidApp(App):
         self._popup = Popup(title="Choose Folder", content=content, size_hint=(0.95, 0.95))
         self._popup.open()
 
-    def find_usb_via_android_api(self, instance):
-        # שיטה חסינת-אש למציאת נתיבים דרך ג'אווה
-        if platform != 'android':
-            self.log("Not on Android", "ff0000")
-            return
-
+    def find_usb_via_linux_mounts(self, instance):
+        # שיטה 3: קריאת קובץ ה-Mounts של לינוקס
+        # זה עוקף את השקרים של אנדרואיד ומראה מה מחובר באמת
+        self.log("Reading /proc/mounts...", "cccccc")
+        found_paths = []
+        
         try:
-            from jnius import autoclass, cast
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            Context = autoclass('android.content.Context')
-            context = PythonActivity.mActivity.getApplicationContext()
+            with open("/proc/mounts", "r") as f:
+                lines = f.readlines()
+                
+            for line in lines:
+                parts = line.split()
+                if len(parts) < 2: continue
+                
+                device = parts[0]
+                path = parts[1]
+                
+                # סינון: אנחנו מחפשים דברים ב-/storage או /mnt
+                # אבל לא את הזיכרון הפנימי (emulated) ולא קבצי מערכת (self/proc)
+                if "/storage" in path or "/mnt" in path:
+                    if "emulated" not in path and "self" not in path and "asec" not in path and "obb" not in path:
+                        found_paths.append(path)
+                        self.log(f"Found Mount: {path}", "00ff00")
             
-            # מבקש מאנדרואיד את כל נתיבי האחסון הזמינים
-            files_dirs = context.getExternalFilesDirs(None)
-            
-            found_usb = False
-            
-            for file_dir in files_dirs:
-                if file_dir is None: continue
+            if found_paths:
+                # לוקחים את הראשון שנמצא (בדרך כלל ה-USB)
+                # לפעמים הנתיב הוא /mnt/media_rw/XXXX וצריך לגשת אליו דרך /storage/XXXX
+                # אז נעשה מניפולציה קטנה
+                final_path = found_paths[0]
                 
-                # ממיר את אובייקט הג'אווה למחרוזת פייתון
-                path_str = file_dir.getAbsolutePath()
-                
-                # הנתיב חוזר בצורה כזו:
-                # /storage/12AB-34CD/Android/data/org.kmc.../files
-                # אנחנו רוצים לחתוך הכל אחרי ה-UUID של הכונן
-                
-                if "emulated" in path_str:
-                    continue # זה הזיכרון הפנימי, מדלגים
-                
-                # מנסים למצוא את השורש של הכונן
-                # בדרך כלל הפורמט הוא /storage/XXXX-XXXX
-                parts = path_str.split("/")
-                if len(parts) > 2:
-                    usb_root = f"/{parts[1]}/{parts[2]}" # אמור לתת /storage/1234-5678
-                    
-                    self.log(f"USB DETECTED: {usb_root}", "00ff00")
-                    self.file_chooser.path = usb_root
-                    self.file_chooser._update_files()
-                    found_usb = True
-                    break
-            
-            if not found_usb:
-                self.log("Android says: No USB mounted.", "ffff00")
-                
+                # תיקון נפוץ: אם המערכת נותנת /mnt/media_rw, ננסה להמיר ל-/storage שנגיש יותר
+                if "/mnt/media_rw/" in final_path:
+                     storage_ver = final_path.replace("/mnt/media_rw/", "/storage/")
+                     if os.path.exists(storage_ver):
+                         final_path = storage_ver
+
+                self.file_chooser.path = final_path
+                self.file_chooser._update_files()
+                self.log(f"Jumped to: {final_path}", "00ff00")
+            else:
+                self.log("No external mounts found in /proc/mounts", "ffff00")
+                self.log("Try formatting USB to FAT32", "ff5555")
+
         except Exception as e:
-            self.log(f"Java API Error: {e}", "ff0000")
+            self.log(f"Linux Mount Error: {e}", "ff0000")
 
     def dismiss_popup(self, instance):
         self._popup.dismiss()
