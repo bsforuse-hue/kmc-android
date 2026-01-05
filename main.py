@@ -7,7 +7,7 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
 from kivy.uix.filechooser import FileChooserListView
 from kivy.utils import platform
-from kivy.metrics import dp # חשוב לגדלים קבועים
+from kivy.metrics import dp
 import os
 import re
 import time
@@ -17,42 +17,32 @@ class KMCAndroidApp(App):
         self.check_permissions_startup()
         self.last_scanned_path = "/storage/emulated/0/Download"
         
-        # שימוש בגדלים קבועים (dp) כדי שהכפתורים לא יעלמו
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
-        # 1. כותרת
         self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1), size_hint_y=None, height=dp(50)))
         
-        # 2. לוגים (תופס את כל המקום הפנוי שנשאר)
-        self.log_label = Label(text="Ready. Click 'FORCE USB'...", size_hint_y=None, markup=True)
+        self.log_label = Label(text="Ready. Click 'DETECT USB'...", size_hint_y=None, markup=True)
         self.log_label.bind(texture_size=self.log_label.setter('size'))
         scroll = ScrollView(size_hint_y=1) 
         scroll.add_widget(self.log_label)
         self.layout.add_widget(scroll)
         
-        # 3. כפתור תיקון הרשאות (גובה קבוע)
         btn_fix = Button(text="FIX PERMISSIONS", size_hint_y=None, height=dp(60), background_color=(0.8, 0, 0, 1))
         btn_fix.bind(on_press=self.open_settings_manual)
         self.layout.add_widget(btn_fix)
         
-        # 4. כפתור ראשי (גובה קבוע)
-        btn_browse = Button(text="OPEN BROWSER / FORCE USB", size_hint_y=None, height=dp(80), background_color=(1, 0.6, 0.2, 1))
+        btn_browse = Button(text="OPEN BROWSER / DETECT USB", size_hint_y=None, height=dp(80), background_color=(1, 0.6, 0.2, 1))
         btn_browse.bind(on_press=self.show_load_popup)
         self.layout.add_widget(btn_browse)
 
-        # 5. כפתורים תחתונים (גובה קבוע)
         bottom_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=None, height=dp(60))
-        
         btn_save = Button(text="SAVE LOG", background_color=(0, 0.8, 0, 1))
         btn_save.bind(on_press=self.save_log)
-        
         btn_exit = Button(text="EXIT", background_color=(0.3, 0.3, 0.3, 1))
         btn_exit.bind(on_press=self.exit_app)
         
         bottom_layout.add_widget(btn_save)
         bottom_layout.add_widget(btn_exit)
-        
-        self.layout.add_widget(bottom_layout)
         return self.layout
 
     def check_permissions_startup(self):
@@ -66,19 +56,16 @@ class KMCAndroidApp(App):
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
         
-        # כפתור איתור מחדש
-        btn_usb = Button(text="DETECT USB (Linux Scan)", size_hint_y=None, height=dp(60), background_color=(0, 0.5, 0.8, 1))
-        btn_usb.bind(on_press=self.find_usb_linux_hack)
+        btn_usb = Button(text="DETECT USB (Try All Paths)", size_hint_y=None, height=dp(60), background_color=(0, 0.5, 0.8, 1))
+        btn_usb.bind(on_press=self.find_usb_multipath)
         content.add_widget(btn_usb)
 
-        # התחלה מ-Download
         start_path = "/storage/emulated/0/Download"
         if not os.path.exists(start_path): start_path = "/"
 
-        # Rootpath פתוח
         self.file_chooser = FileChooserListView(
             path=start_path, 
-            rootpath="/storage", # מאפשר לעלות למעלה
+            rootpath="/", # פתחנו את הגישה לכל המערכת
             dirselect=True, 
             filters=['*.req', '*.rsp', '*']
         )
@@ -97,7 +84,7 @@ class KMCAndroidApp(App):
         self._popup = Popup(title="File Browser", content=content, size_hint=(0.95, 0.95))
         self._popup.open()
 
-    def find_usb_linux_hack(self, instance):
+    def find_usb_multipath(self, instance):
         self.log("Scanning /proc/mounts...", "cccccc")
         usb_found = False
         
@@ -106,40 +93,39 @@ class KMCAndroidApp(App):
                 lines = f.readlines()
             
             for line in lines:
-                # אנחנו מחפשים את הדפוס שראינו בצילום מסך שלך:
-                # /mnt/media_rw/XXXX-XXXX
                 if "/mnt/media_rw" in line:
                     parts = line.split()
                     if len(parts) >= 2:
-                        mount_path = parts[1] # מקבלים /mnt/media_rw/E65A-046E
-                        
-                        # חילוץ ה-ID בלבד (למשל E65A-046E)
-                        drive_id = os.path.basename(mount_path)
-                        
-                        # בניית הנתיב ב-/storage
-                        target_path = f"/storage/{drive_id}"
+                        raw_mount_path = parts[1] # נתיב מקורי: /mnt/media_rw/E65A-046E
+                        drive_id = os.path.basename(raw_mount_path)
                         
                         self.log(f"Found ID: {drive_id}", "00ff00")
-                        self.log(f"Trying: {target_path}", "cccccc")
                         
-                        if os.path.exists(target_path):
-                            # הצלחה!
-                            self.file_chooser.path = target_path
-                            self.file_chooser._update_files()
-                            self.log(f"JUMPED TO USB!", "00ff00")
-                            usb_found = True
-                            break
-                        else:
-                             self.log(f"Path not exists: {target_path}", "ff0000")
+                        # רשימת כל הנתיבים האפשריים לבדיקה
+                        paths_to_try = [
+                            f"/storage/{drive_id}",          # סטנדרטי
+                            raw_mount_path,                  # מקורי (/mnt/media_rw/...)
+                            f"/mnt/usb/{drive_id}",          # נדיר
+                            f"/storage/{drive_id.lower()}",  # אותיות קטנות
+                        ]
+                        
+                        for p in paths_to_try:
+                            self.log(f"Trying: {p}", "cccccc")
+                            if os.path.exists(p) and os.access(p, os.R_OK):
+                                # בינגו!
+                                self.file_chooser.path = p
+                                self.file_chooser._update_files()
+                                self.log(f"SUCCESS! Opened: {p}", "00ff00")
+                                usb_found = True
+                                break
+                            
+                        if usb_found: break
 
             if not usb_found:
-                self.log("USB ID not found in mounts.", "ff5555")
-                # ניסיון נואש אחרון: לך ל-/storage וזהו
-                self.file_chooser.path = "/storage"
-                self.file_chooser._update_files()
+                self.log("USB ID found but path unreachable.", "ff5555")
 
         except Exception as e:
-            self.log(f"Linux Error: {e}", "ff0000")
+            self.log(f"Error: {e}", "ff0000")
 
     def open_settings_manual(self, instance):
         if platform == 'android':
