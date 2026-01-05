@@ -21,14 +21,14 @@ jobs:
           large-packages: true
           swap-storage: true
 
-      # 2. הגדרת Java 17
+      # 2. Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. הגדרת Python 3.10
+      # 3. Python 3.10
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -46,7 +46,7 @@ jobs:
             autoconf automake libtool zip unzip cmake gettext pkg-config \
             libncurses5-dev libncursesw5-dev libtinfo5
 
-      # 5. התקנת הכלים (הגרסאות החדשות שעבדו בשלב הקודם)
+      # 5. התקנת הכלים (הגרסאות החדשות)
       - name: Install Buildozer & Kivy Stack
         run: |
           pip install --upgrade pip
@@ -54,13 +54,13 @@ jobs:
           pip install "kivy==2.3.0"
           pip install "buildozer==1.5.0"
 
-      # 6. אתחול Buildozer (עם מחיקה של הקובץ הישן)
+      # 6. אתחול
       - name: Init Buildozer
         run: |
           rm -f buildozer.spec
           buildozer init
 
-      # 7. הגדרת הקובץ
+      # 7. הגדרת הקובץ (כולל תיקון הארכיטקטורה כדי לחסוך זמן ולוגים)
       - name: Configure Buildozer Spec
         run: |
           # שמות
@@ -77,20 +77,34 @@ jobs:
           
           # אישור רישיונות
           sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
-          sed -i 's/# android.archs = arm64-v8a, armeabi-v7a/android.archs = arm64-v8a/' buildozer.spec
           
-          # לוגים (הורדתי ל-1 כדי לא להעמיס על הלוג אם אין צורך)
-          sed -i 's/log_level = 1/log_level = 2/' buildozer.spec
+          # כפיית ארכיטקטורה אחת בלבד (מקטין את הלוג בחצי)
+          # אנחנו מוחקים את השורה הקיימת וכותבים חדשה בסוף הקובץ כדי להיות בטוחים
+          sed -i '/android.archs/d' buildozer.spec
+          echo "android.archs = arm64-v8a" >> buildozer.spec
+          
+          # החזרת הלוג לרמה רגילה כדי למנוע חיתוך
+          sed -i 's/log_level = 2/log_level = 1/' buildozer.spec
 
-      # 8. בנייה - בלי yes!
-      # זה יאפשר לנו לראות את השגיאה אם הבנייה נתקעת, במקום לראות מיליון שורות של 'y'
+      # 8. בנייה חכמה
+      # הפקודה הזו שומרת את הלוג לקובץ ורק מציגה את הסוף שלו למסך
+      # זה מונע את קריסת הדפדפן ומאפשר לנו להוריד את הלוג המלא אם יש תקלה
       - name: Build APK
         run: |
-          buildozer android debug
+          yes | buildozer android debug > build_output.log 2>&1 || (tail -n 200 build_output.log && exit 1)
 
-      # 9. העלאה
+      # 9. העלאת ה-APK (אם הצליח)
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: kmc-app-apk
           path: bin/*.apk
+
+      # 10. העלאת הלוג המלא (אם נכשל) - כדי שנוכל לראות מה קרה
+      - name: Upload Error Log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-error-log
+          path: build_output.log
