@@ -21,14 +21,14 @@ jobs:
           large-packages: true
           swap-storage: true
 
-      # 2. הגדרת Java 17 (סטנדרט נוכחי)
+      # 2. הגדרת Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. הגדרת Python 3.10 (הגרסה המומלצת ל-Kivy 2.3)
+      # 3. הגדרת Python 3.10
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -46,20 +46,21 @@ jobs:
             autoconf automake libtool zip unzip cmake gettext pkg-config \
             libncurses5-dev libncursesw5-dev libtinfo5
 
-      # 5. התקנת Kivy 2.3.0 ו-Cython 3 (הסטנדרט החדש)
+      # 5. התקנת Kivy 2.3.0 ו-Cython 3
       - name: Install Buildozer & Kivy Stack
         run: |
           pip install --upgrade pip
-          # כאן השינוי הגדול: אנחנו משתמשים בגרסאות הכי חדשות ותואמות
           pip install "cython==3.0.11"
           pip install "kivy==2.3.0"
           pip install "buildozer==1.5.0"
 
-      # 6. אתחול Buildozer
+      # 6. אתחול Buildozer (עם מחיקה של הקובץ הישן כדי למנוע את השגיאה)
       - name: Init Buildozer
-        run: buildozer init
+        run: |
+          rm -f buildozer.spec
+          buildozer init
 
-      # 7. הגדרת הקובץ בצורה כירורגית
+      # 7. הגדרת הקובץ
       - name: Configure Buildozer Spec
         run: |
           # שמות
@@ -67,23 +68,21 @@ jobs:
           sed -i 's/package.name = myapp/package.name = kmcanalzyer/' buildozer.spec
           sed -i 's/package.domain = org.test/package.domain = org.kmc/' buildozer.spec
           
-          # דרישות - שים לב שאנחנו דורשים במפורש את הגרסה החדשה
+          # דרישות
           sed -i 's/requirements = python3,kivy/requirements = python3,kivy==2.3.0/' buildozer.spec
           
-          # הגדרות אנדרואיד (API 33 - Android 13)
+          # הגדרות אנדרואיד
           sed -i 's/android.api = 27/android.api = 33/' buildozer.spec
           sed -i 's/android.minapi = 21/android.minapi = 21/' buildozer.spec
           
-          # אישור רישיונות וארכיטקטורה
+          # אישור רישיונות
           sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
           sed -i 's/# android.archs = arm64-v8a, armeabi-v7a/android.archs = arm64-v8a/' buildozer.spec
           
-          # לוגים - חשוב מאוד לדיבוג
+          # לוגים
           sed -i 's/log_level = 1/log_level = 2/' buildozer.spec
 
-      # 8. בנייה - החזרתי את ה-yes
-      # למה? כי לפעמים ה-SDK דורש אישור גם אם כתוב True בקובץ.
-      # בגלל שהשתמשנו בגרסאות תואמות (Kivy 2.3 + Cython 3), זה לא אמור לקרוס מיד.
+      # 8. בנייה
       - name: Build APK
         run: |
           yes | buildozer android debug
