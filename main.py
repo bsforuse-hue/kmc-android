@@ -17,6 +17,10 @@ class KMCAndroidApp(App):
     def build(self):
         self.check_permissions()
         
+        # משתנה לשמירת הנתיב האחרון שנסרק
+        # ברירת מחדל: תיקיית ההורדות
+        self.last_scanned_path = "/storage/emulated/0/Download"
+        
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1)))
         
@@ -70,15 +74,30 @@ class KMCAndroidApp(App):
     def save_log(self, instance):
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         filename = f"KMC_Log_{timestamp}.txt"
-        save_path = f"/storage/emulated/0/Download/{filename}"
+        
+        # שימוש בנתיב האחרון שנסרק
+        # אם הנתיב הוא USB, זה ישמור ישירות על ה-USB
+        if os.path.exists(self.last_scanned_path):
+            save_path = os.path.join(self.last_scanned_path, filename)
+        else:
+            # גיבוי למקרה שהנתיב לא קיים (למשל אם ה-USB נותק)
+            save_path = f"/storage/emulated/0/Download/{filename}"
         
         try:
             clean_text = re.sub(r'\[.*?\]', '', self.log_label.text)
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(clean_text)
-            self.log(f"\nLog Saved Successfully:\n{save_path}", "00ff00")
+            self.log(f"\nLog Saved to Scan Folder:\n{save_path}", "00ff00")
         except Exception as e:
             self.log(f"\nSave Failed: {e}", "ff0000")
+            # ניסיון שני לשמור להורדות במקרה של כישלון (למשל USB לקריאה בלבד)
+            try:
+                backup_path = f"/storage/emulated/0/Download/{filename}"
+                with open(backup_path, 'w', encoding='utf-8') as f:
+                    f.write(clean_text)
+                self.log(f"Saved to Download instead:\n{backup_path}", "ffff00")
+            except:
+                pass
 
     def exit_app(self, instance):
         App.get_running_app().stop()
@@ -86,7 +105,6 @@ class KMCAndroidApp(App):
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
         
-        # כפתור ה-USB המעודכן
         btn_usb = Button(text="Go to USB / Drives Root", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
         btn_usb.bind(on_press=self.goto_drives_root)
         content.add_widget(btn_usb)
@@ -119,22 +137,14 @@ class KMCAndroidApp(App):
         self._popup.open()
 
     def goto_drives_root(self, instance):
-        # לוגיקה חדשה לזיהוי כוננים
         target_path = "/storage"
         try:
-            # אנחנו מנסים לקרוא את רשימת הכוננים ולהדפיס אותה ללוג
-            # זה יעזור לנו להבין אם המכשיר מזהה את ה-USB
             drives = os.listdir(target_path)
-            self.log(f"Found drives in storage: {drives}", "cccccc")
-            
-            # מעבר כפוי לנתיב
+            self.log(f"Found drives: {drives}", "cccccc")
             self.file_chooser.path = target_path
-            # רענון כפוי של הרכיב הגרפי
             self.file_chooser._update_files()
-            
         except Exception as e:
             self.log(f"Error accessing /storage: {e}", "ff0000")
-            # ניסיון גיבוי לנתיב מדיה ישן יותר
             if os.path.exists("/mnt/media_rw"):
                  self.file_chooser.path = "/mnt/media_rw"
 
@@ -144,6 +154,8 @@ class KMCAndroidApp(App):
     def load_folder(self, instance):
         path = self.file_chooser.path
         self.dismiss_popup(instance)
+        # עדכון הנתיב שנבחר כנתיב לשמירה
+        self.last_scanned_path = path
         self.scan_files(path)
 
     def scan_files(self, path):
