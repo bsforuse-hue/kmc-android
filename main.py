@@ -8,7 +8,7 @@ from kivy.uix.popup import Popup
 from kivy.uix.filechooser import FileChooserListView
 from kivy.utils import platform
 import os
-import re  # נועד לניקוי הטקסט לפני שמירה
+import re
 import time
 
 MSG_TYPES = {0x01: "REPLACE_ALL", 0x03: "ADD_AUTH (KMAC)", 0x41: "RESPONSE"}
@@ -17,30 +17,24 @@ class KMCAndroidApp(App):
     def build(self):
         self.check_permissions()
         
-        # מבנה ראשי אנכי
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1)))
         
-        # אזור הלוגים
-        self.log_label = Label(text="Connect USB or Select Folder...", size_hint_y=None, markup=True)
+        self.log_label = Label(text="Connect USB -> Click CHOOSE FOLDER -> Go to USB", size_hint_y=None, markup=True)
         self.log_label.bind(texture_size=self.log_label.setter('size'))
-        scroll = ScrollView(size_hint=(1, 0.75)) # הקטנתי טיפה כדי לפנות מקום לכפתורים
+        scroll = ScrollView(size_hint=(1, 0.75))
         scroll.add_widget(self.log_label)
         self.layout.add_widget(scroll)
         
-        # כפתור סריקה
         btn_browse = Button(text="CHOOSE FOLDER / USB", size_hint=(1, 0.12), background_color=(1, 0.6, 0.2, 1))
         btn_browse.bind(on_press=self.show_load_popup)
         self.layout.add_widget(btn_browse)
 
-        # אזור כפתורים תחתון (שמירה ויציאה)
         bottom_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint=(1, 0.12))
         
-        # כפתור שמירה (ירוק)
         btn_save = Button(text="SAVE LOG", background_color=(0, 0.8, 0, 1))
         btn_save.bind(on_press=self.save_log)
         
-        # כפתור יציאה (אדום)
         btn_exit = Button(text="EXIT", background_color=(1, 0, 0, 1))
         btn_exit.bind(on_press=self.exit_app)
         
@@ -74,20 +68,15 @@ class KMCAndroidApp(App):
         self.log_label.text += f"\n[color={color}]{text}[/color]"
 
     def save_log(self, instance):
-        # יצירת שם קובץ ייחודי עם תאריך ושעה
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         filename = f"KMC_Log_{timestamp}.txt"
         save_path = f"/storage/emulated/0/Download/{filename}"
         
         try:
-            # ניקוי תגיות הצבע מהטקסט כדי שיהיה קריא בקובץ
             clean_text = re.sub(r'\[.*?\]', '', self.log_label.text)
-            
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(clean_text)
-            
             self.log(f"\nLog Saved Successfully:\n{save_path}", "00ff00")
-            
         except Exception as e:
             self.log(f"\nSave Failed: {e}", "ff0000")
 
@@ -97,6 +86,7 @@ class KMCAndroidApp(App):
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
         
+        # כפתור ה-USB המעודכן
         btn_usb = Button(text="Go to USB / Drives Root", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
         btn_usb.bind(on_press=self.goto_drives_root)
         content.add_widget(btn_usb)
@@ -129,10 +119,24 @@ class KMCAndroidApp(App):
         self._popup.open()
 
     def goto_drives_root(self, instance):
-        if os.path.exists("/storage"):
-            self.file_chooser.path = "/storage"
-        else:
-            self.file_chooser.path = "/"
+        # לוגיקה חדשה לזיהוי כוננים
+        target_path = "/storage"
+        try:
+            # אנחנו מנסים לקרוא את רשימת הכוננים ולהדפיס אותה ללוג
+            # זה יעזור לנו להבין אם המכשיר מזהה את ה-USB
+            drives = os.listdir(target_path)
+            self.log(f"Found drives in storage: {drives}", "cccccc")
+            
+            # מעבר כפוי לנתיב
+            self.file_chooser.path = target_path
+            # רענון כפוי של הרכיב הגרפי
+            self.file_chooser._update_files()
+            
+        except Exception as e:
+            self.log(f"Error accessing /storage: {e}", "ff0000")
+            # ניסיון גיבוי לנתיב מדיה ישן יותר
+            if os.path.exists("/mnt/media_rw"):
+                 self.file_chooser.path = "/mnt/media_rw"
 
     def dismiss_popup(self, instance):
         self._popup.dismiss()
