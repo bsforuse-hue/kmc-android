@@ -21,7 +21,7 @@ class KMCAndroidApp(App):
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1)))
         
-        self.log_label = Label(text="Click 'FORCE DETECT USB' to find drive E65A...", size_hint_y=None, markup=True)
+        self.log_label = Label(text="Click 'FORCE DETECT USB'...", size_hint_y=None, markup=True)
         self.log_label.bind(texture_size=self.log_label.setter('size'))
         scroll = ScrollView(size_hint=(1, 0.65))
         scroll.add_widget(self.log_label)
@@ -43,7 +43,6 @@ class KMCAndroidApp(App):
         
         bottom_layout.add_widget(btn_save)
         bottom_layout.add_widget(btn_exit)
-        self.layout.add_widget(bottom_layout)
         return self.layout
 
     def check_permissions_startup(self):
@@ -93,15 +92,19 @@ class KMCAndroidApp(App):
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
         
-        btn_usb = Button(text="FORCE DETECT USB (Smart)", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
+        btn_usb = Button(text="FORCE DETECT USB", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
         btn_usb.bind(on_press=self.find_usb_via_linux_mounts)
         content.add_widget(btn_usb)
 
+        # התחלה מוגדרת היטב
         start_path = "/storage/emulated/0/"
-        if not os.path.exists(start_path): start_path = "/"
-
+        
+        # כאן אנחנו מגדירים rootpath רחב יותר כדי לאפשר תנועה
         self.file_chooser = FileChooserListView(
-            path=start_path, rootpath="/storage", dirselect=True, filters=['*.req', '*.rsp', '*']
+            path=start_path, 
+            rootpath="/storage",  # זה השינוי הקריטי - מאפשר לראות הכל תחת storage
+            dirselect=True, 
+            filters=['*.req', '*.rsp', '*']
         )
         content.add_widget(self.file_chooser)
         
@@ -119,47 +122,40 @@ class KMCAndroidApp(App):
         self._popup.open()
 
     def find_usb_via_linux_mounts(self, instance):
-        # שיטה חכמה: מחפשת ספציפית את media_rw
-        self.log("Scanning system mounts...", "cccccc")
-        
+        self.log("Scanning mounts...", "cccccc")
         usb_found_path = None
         
         try:
             with open("/proc/mounts", "r") as f:
                 lines = f.readlines()
-                
+            
             for line in lines:
                 parts = line.split()
                 if len(parts) < 2: continue
                 path = parts[1]
                 
-                # אנחנו מחפשים שורה שמכילה media_rw
-                # זה הטריק! כי ראינו בלוג שלך שהכונן מופיע ככה
                 if "/mnt/media_rw" in path:
-                    self.log(f"Potential USB: {path}", "00ff00")
-                    usb_found_path = path
-                    
-                    # המרה מ-/mnt (חסום) ל-/storage (פתוח)
-                    # הנתיב שלך הוא /mnt/media_rw/E65A-046E
-                    # אנחנו צריכים להפוך אותו ל: /storage/E65A-046E
+                    # המרה לנתיב storage שפתוח לקריאה
                     possible_storage_path = path.replace("/mnt/media_rw", "/storage")
                     
                     if os.path.exists(possible_storage_path):
-                        self.log(f"Converted to Storage: {possible_storage_path}", "00ff00")
                         usb_found_path = possible_storage_path
-                    
-                    # מצאנו! אין טעם להמשיך לחפש
-                    break
+                        self.log(f"Found USB: {usb_found_path}", "00ff00")
+                        break
 
             if usb_found_path:
+                # טריק: שחרור הנעילה ורענון
+                # אנחנו משנים את ה-rootpath לתיקיית ה-USB עצמה כדי להכריח את הרכיב להיכנס לשם
+                self.file_chooser.rootpath = "/storage" 
                 self.file_chooser.path = usb_found_path
                 self.file_chooser._update_files()
-                self.log(f"JUMPING TO: {usb_found_path}", "00ff00")
+                
+                self.log(f"SUCCESS: Jumped to {usb_found_path}", "00ff00")
             else:
-                self.log("USB not found in mounts. Is it FAT32?", "ff5555")
+                self.log("No USB found via mounts.", "ff5555")
 
         except Exception as e:
-            self.log(f"Linux Mount Error: {e}", "ff0000")
+            self.log(f"Error: {e}", "ff0000")
 
     def dismiss_popup(self, instance):
         self._popup.dismiss()
