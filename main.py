@@ -15,16 +15,15 @@ MSG_TYPES = {0x01: "REPLACE_ALL", 0x03: "ADD_AUTH (KMAC)", 0x41: "RESPONSE"}
 
 class KMCAndroidApp(App):
     def build(self):
+        # הפעלה מיידית של בקשת ההרשאות
         self.check_permissions()
         
-        # משתנה לשמירת הנתיב האחרון שנסרק
-        # ברירת מחדל: תיקיית ההורדות
         self.last_scanned_path = "/storage/emulated/0/Download"
         
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1)))
         
-        self.log_label = Label(text="Connect USB -> Click CHOOSE FOLDER -> Go to USB", size_hint_y=None, markup=True)
+        self.log_label = Label(text="1. Check Settings -> All Files Access = ON\n2. Ensure USB is FAT32\n3. Click CHOOSE FOLDER -> Go to USB", size_hint_y=None, markup=True)
         self.log_label.bind(texture_size=self.log_label.setter('size'))
         scroll = ScrollView(size_hint=(1, 0.75))
         scroll.add_widget(self.log_label)
@@ -44,29 +43,48 @@ class KMCAndroidApp(App):
         
         bottom_layout.add_widget(btn_save)
         bottom_layout.add_widget(btn_exit)
-        
         self.layout.add_widget(bottom_layout)
-
         return self.layout
 
     def check_permissions(self):
         if platform == 'android':
-            from jnius import autoclass
-            from android.permissions import request_permissions, Permission
-            request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
             try:
+                from jnius import autoclass
+                from android.permissions import request_permissions, Permission
+                
+                # שלב 1: הרשאות רגילות
+                request_permissions([
+                    Permission.READ_EXTERNAL_STORAGE, 
+                    Permission.WRITE_EXTERNAL_STORAGE,
+                    Permission.MANAGE_EXTERNAL_STORAGE
+                ])
+                
+                # שלב 2: בדיקת הרשאת מנהל (All Files Access)
                 PythonActivity = autoclass('org.kivy.android.PythonActivity')
                 Environment = autoclass('android.os.Environment')
                 Intent = autoclass('android.content.Intent')
                 Settings = autoclass('android.provider.Settings')
                 Uri = autoclass('android.net.Uri')
-                if not Environment.isExternalStorageManager():
-                    intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    uri = Uri.parse("package:" + PythonActivity.mActivity.getPackageName())
-                    intent.setData(uri)
-                    PythonActivity.mActivity.startActivity(intent)
+                
+                # האם יש לנו אישור מנהל?
+                has_permission = Environment.isExternalStorageManager()
+                print(f"DEBUG: Has Manage External Storage? {has_permission}")
+                
+                if not has_permission:
+                    # ניסיון לפתוח ישירות את המסך לאפליקציה שלנו
+                    try:
+                        intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                        uri = Uri.parse("package:" + PythonActivity.mActivity.getPackageName())
+                        intent.setData(uri)
+                        PythonActivity.mActivity.startActivity(intent)
+                    except Exception as e:
+                        print(f"DEBUG: Error opening specific settings: {e}")
+                        # אם נכשל, פתח את הרשימה הכללית
+                        intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                        PythonActivity.mActivity.startActivity(intent)
+                        
             except Exception as e:
-                print(f"Permission Error: {e}")
+                print(f"DEBUG: Permission Critical Error: {e}")
 
     def log(self, text, color="ffffff"):
         self.log_label.text += f"\n[color={color}]{text}[/color]"
@@ -75,57 +93,46 @@ class KMCAndroidApp(App):
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         filename = f"KMC_Log_{timestamp}.txt"
         
-        # שימוש בנתיב האחרון שנסרק
-        # אם הנתיב הוא USB, זה ישמור ישירות על ה-USB
-        if os.path.exists(self.last_scanned_path):
+        if os.path.exists(self.last_scanned_path) and os.access(self.last_scanned_path, os.W_OK):
             save_path = os.path.join(self.last_scanned_path, filename)
         else:
-            # גיבוי למקרה שהנתיב לא קיים (למשל אם ה-USB נותק)
             save_path = f"/storage/emulated/0/Download/{filename}"
         
         try:
             clean_text = re.sub(r'\[.*?\]', '', self.log_label.text)
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(clean_text)
-            self.log(f"\nLog Saved to Scan Folder:\n{save_path}", "00ff00")
+            self.log(f"\nLog Saved:\n{save_path}", "00ff00")
         except Exception as e:
             self.log(f"\nSave Failed: {e}", "ff0000")
-            # ניסיון שני לשמור להורדות במקרה של כישלון (למשל USB לקריאה בלבד)
+            # ניסיון גיבוי
             try:
-                backup_path = f"/storage/emulated/0/Download/{filename}"
-                with open(backup_path, 'w', encoding='utf-8') as f:
+                backup = f"/storage/emulated/0/Download/{filename}"
+                with open(backup, 'w', encoding='utf-8') as f:
                     f.write(clean_text)
-                self.log(f"Saved to Download instead:\n{backup_path}", "ffff00")
-            except:
-                pass
+                self.log(f"Saved to Backup:\n{backup}", "ffff00")
+            except: pass
 
     def exit_app(self, instance):
         App.get_running_app().stop()
 
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
-        
         btn_usb = Button(text="Go to USB / Drives Root", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
         btn_usb.bind(on_press=self.goto_drives_root)
         content.add_widget(btn_usb)
 
         start_path = "/storage/emulated/0/"
-        if not os.path.exists(start_path):
-            start_path = "/"
+        if not os.path.exists(start_path): start_path = "/"
 
         self.file_chooser = FileChooserListView(
-            path=start_path,
-            rootpath="/storage", 
-            dirselect=True,
-            filters=['*.req', '*.rsp', '*']
+            path=start_path, rootpath="/storage", dirselect=True, filters=['*.req', '*.rsp', '*']
         )
-        
         content.add_widget(self.file_chooser)
         
         btn_layout = BoxLayout(size_hint_y=0.15, spacing=5)
         btn_select = Button(text="Scan This Folder", background_color=(0, 1, 0, 1))
         btn_select.bind(on_press=self.load_folder)
-        
         btn_cancel = Button(text="Cancel", background_color=(0.5, 0.5, 0.5, 1))
         btn_cancel.bind(on_press=self.dismiss_popup)
         
@@ -138,15 +145,18 @@ class KMCAndroidApp(App):
 
     def goto_drives_root(self, instance):
         target_path = "/storage"
+        self.log(f"Checking {target_path}...", "cccccc")
         try:
             drives = os.listdir(target_path)
-            self.log(f"Found drives: {drives}", "cccccc")
+            self.log(f"Found: {drives}", "cccccc")
             self.file_chooser.path = target_path
             self.file_chooser._update_files()
+        except PermissionError:
+            self.log("PERMISSION DENIED on /storage. Check Settings!", "ff0000")
         except Exception as e:
-            self.log(f"Error accessing /storage: {e}", "ff0000")
+            self.log(f"Error: {e}", "ff0000")
             if os.path.exists("/mnt/media_rw"):
-                 self.file_chooser.path = "/mnt/media_rw"
+                self.file_chooser.path = "/mnt/media_rw"
 
     def dismiss_popup(self, instance):
         self._popup.dismiss()
@@ -154,28 +164,29 @@ class KMCAndroidApp(App):
     def load_folder(self, instance):
         path = self.file_chooser.path
         self.dismiss_popup(instance)
-        # עדכון הנתיב שנבחר כנתיב לשמירה
         self.last_scanned_path = path
         self.scan_files(path)
 
     def scan_files(self, path):
         self.log_label.text = f"Scanning: {path}..."
         try:
-            if not os.path.exists(path):
-                 self.log(f"Path not found!", "ff0000")
-                 return
+            # בדיקת הרשאות קריאה לפני ניסיון סריקה
+            if not os.access(path, os.R_OK):
+                self.log(f"NO READ PERMISSION for:\n{path}", "ff0000")
+                return
 
             files = [f for f in os.listdir(path) if f.lower().endswith(('.req', '.rsp'))]
-            
             if not files:
-                self.log("No .req or .rsp files found here.", "ffff00")
+                self.log("No .req/.rsp files found here.", "ffff00")
                 return
             
             for f_name in files:
                 self.analyze(os.path.join(path, f_name), f_name)
                 
+        except PermissionError:
+             self.log("PERMISSION DENIED (Error 13).\nVerify FAT32 USB & App Settings.", "ff0000")
         except Exception as e:
-            self.log(f"Access Error: {e}", "ff0000")
+            self.log(f"Error: {e}", "ff0000")
 
     def analyze(self, filepath, filename):
         try:
@@ -183,8 +194,7 @@ class KMCAndroidApp(App):
             if len(data) < 25: return
             
             m_type = data[24]
-            info = "REQ"
-            status = "Pending"
+            info = "REQ"; status = "Pending"
             
             if m_type == 0x41: # RSP
                 nid = int.from_bytes(data[9:13][1:], 'big')
@@ -201,8 +211,7 @@ class KMCAndroidApp(App):
             color = "ff5555" if "Err" in status else "00ff00"
             self.log(f"{filename}\n{info} | {status}", color)
             self.log("- - -", "555555")
-        except Exception as e:
-            self.log(f"Read Error: {e}", "ff5555")
+        except: pass
 
 if __name__ == '__main__':
     KMCAndroidApp().run()
