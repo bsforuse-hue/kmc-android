@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. ניקוי דיסק
+      # 1. ניקוי דיסק (חובה)
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -21,14 +21,14 @@ jobs:
           large-packages: true
           swap-storage: true
 
-      # 2. Java 17
+      # 2. הגדרת Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. Python 3.10
+      # 3. הגדרת Python 3.10
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -46,7 +46,7 @@ jobs:
             autoconf automake libtool zip unzip cmake gettext pkg-config \
             libncurses5-dev libncursesw5-dev libtinfo5
 
-      # 5. התקנת הכלים (הגרסאות החדשות)
+      # 5. התקנת הכלים (הסטנדרט המודרני: Kivy 2.3 + Cython 3)
       - name: Install Buildozer & Kivy Stack
         run: |
           pip install --upgrade pip
@@ -54,57 +54,50 @@ jobs:
           pip install "kivy==2.3.0"
           pip install "buildozer==1.5.0"
 
-      # 6. אתחול
-      - name: Init Buildozer
+      # 6. יצירת קובץ הגדרות ידני (הפתרון לבעיית הארכיטקטורה הכפולה)
+      - name: Create Buildozer Spec
         run: |
           rm -f buildozer.spec
-          buildozer init
-
-      # 7. הגדרת הקובץ (כולל תיקון הארכיטקטורה כדי לחסוך זמן ולוגים)
-      - name: Configure Buildozer Spec
-        run: |
-          # שמות
-          sed -i 's/title = My Application/title = KMC Analyzer/' buildozer.spec
-          sed -i 's/package.name = myapp/package.name = kmcanalzyer/' buildozer.spec
-          sed -i 's/package.domain = org.test/package.domain = org.kmc/' buildozer.spec
+          rm -rf .buildozer
+          # כתיבת הקובץ מאפס - שליטה מלאה
+          cat <<EOT >> buildozer.spec
+          [app]
+          title = KMC Analyzer
+          package.name = kmcanalzyer
+          package.domain = org.kmc
+          source.dir = .
+          source.include_exts = py,png,jpg,kv,atlas
+          version = 0.1
           
-          # דרישות
-          sed -i 's/requirements = python3,kivy/requirements = python3,kivy==2.3.0/' buildozer.spec
+          # דרישות מודרניות
+          requirements = python3,kivy==2.3.0
+          
+          orientation = portrait
+          fullscreen = 0
+          android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE
           
           # הגדרות אנדרואיד
-          sed -i 's/android.api = 27/android.api = 33/' buildozer.spec
-          sed -i 's/android.minapi = 21/android.minapi = 21/' buildozer.spec
+          android.api = 33
+          android.minapi = 21
+          android.ndk = 25b
+          android.accept_sdk_license = True
           
-          # אישור רישיונות
-          sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
+          # הדבר הכי חשוב: ארכיטקטורה אחת בלבד!
+          android.archs = arm64-v8a
           
-          # כפיית ארכיטקטורה אחת בלבד (מקטין את הלוג בחצי)
-          # אנחנו מוחקים את השורה הקיימת וכותבים חדשה בסוף הקובץ כדי להיות בטוחים
-          sed -i '/android.archs/d' buildozer.spec
-          echo "android.archs = arm64-v8a" >> buildozer.spec
-          
-          # החזרת הלוג לרמה רגילה כדי למנוע חיתוך
-          sed -i 's/log_level = 2/log_level = 1/' buildozer.spec
+          [buildozer]
+          log_level = 2
+          warn_on_root = 1
+          EOT
 
-      # 8. בנייה חכמה
-      # הפקודה הזו שומרת את הלוג לקובץ ורק מציגה את הסוף שלו למסך
-      # זה מונע את קריסת הדפדפן ומאפשר לנו להוריד את הלוג המלא אם יש תקלה
+      # 7. בנייה
       - name: Build APK
         run: |
-          yes | buildozer android debug > build_output.log 2>&1 || (tail -n 200 build_output.log && exit 1)
+          buildozer android debug
 
-      # 9. העלאת ה-APK (אם הצליח)
+      # 8. העלאה
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: kmc-app-apk
           path: bin/*.apk
-
-      # 10. העלאת הלוג המלא (אם נכשל) - כדי שנוכל לראות מה קרה
-      - name: Upload Error Log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-error-log
-          path: build_output.log
