@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. ניקוי דיסק מוגבר
+      # 1. ניקוי דיסק
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -19,7 +19,6 @@ jobs:
           dotnet: true
           haskell: true
           large-packages: true
-          docker-images: true
           swap-storage: true
 
       # 2. הגדרת Java 17
@@ -35,7 +34,7 @@ jobs:
         with:
           python-version: '3.10'
 
-      # 4. התקנת תלויות מערכת (רשימה מורחבת לכיסוי כל האפשרויות)
+      # 4. התקנת תלויות מערכת - הוספתי את autopoint ו-libtool-bin החסרים!
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -46,7 +45,7 @@ jobs:
             zlib1g-dev libltdl-dev libffi-dev libssl-dev \
             autoconf automake libtool zip unzip cmake gettext pkg-config \
             libncurses5-dev libncursesw5-dev libtinfo5 \
-            libtool-bin
+            autopoint libtool-bin
 
       # 5. התקנת הכלים
       - name: Install Buildozer & Kivy Stack
@@ -56,7 +55,7 @@ jobs:
           pip install "kivy==2.3.0"
           pip install "buildozer==1.5.0"
 
-      # 6. יצירת קובץ הגדרות עם התיקון הקריטי (p4a.branch)
+      # 6. יצירת קובץ הגדרות חדש ונקי
       - name: Create Buildozer Spec
         run: |
           rm -f buildozer.spec
@@ -82,21 +81,26 @@ jobs:
           android.accept_sdk_license = True
           android.archs = arm64-v8a
           
-          # התיקון הקריטי: שימוש בגרסת הפיתוח שמתאימה לכלים החדשים
-          p4a.branch = develop
-          
           [buildozer]
           log_level = 2
           warn_on_root = 1
           EOT
 
-      # 7. בנייה עם חשיפת שגיאות מלאה
-      # אם נכשל: מדפיס את *כל* הקובץ (cat) כדי ששום דבר לא יוסתר
+      # 7. בדיקה שקובץ main.py קיים (כדי לוודא שאין טעות בסיסית)
+      - name: Verify main.py
+        run: |
+          if [ ! -f main.py ]; then
+            echo "ERROR: main.py not found!"
+            exit 1
+          fi
+
+      # 8. בנייה - שימוש ב-tee כדי לראות לוגים גם במסך וגם בקובץ
       - name: Build APK
         run: |
-          yes | buildozer android debug > build_output.txt 2>&1 || (echo "BUILD FAILED! DUMPING LOG:" && cat build_output.txt && exit 1)
+          # הפקודה הזו מריצה את הבנייה ושומרת הכל ל-build.log
+          buildozer android debug 2>&1 | tee build.log
 
-      # 8. העלאת ה-APK
+      # 9. העלאה של ה-APK
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -104,10 +108,10 @@ jobs:
           name: kmc-app-apk
           path: bin/*.apk
 
-      # 9. העלאת הלוג כקובץ (גיבוי)
-      - name: Upload Log Artifact
+      # 10. העלאה של הלוג המלא במקרה של כישלון (חובה לדיבוג!)
+      - name: Upload Build Log
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: full-build-log
-          path: build_output.txt
+          name: build-failure-log
+          path: build.log
