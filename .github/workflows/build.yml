@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK (Diagnostic)
 on:
   push:
     branches: [ main, master ]
@@ -10,7 +10,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. ניקוי דיסק
+      # שלב בדיקה: האם main.py קיים?
+      # אם השלב הזה נכשל או מראה שאין main.py, הבנייה תיכשל בהמשך
+      - name: Check File Structure
+        run: |
+          echo "Listing all files in repository:"
+          ls -R
+
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -21,20 +27,17 @@ jobs:
           large-packages: true
           swap-storage: true
 
-      # 2. הגדרת Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. הגדרת Python 3.10
-      - name: Setup Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 4. התקנת תלויות מערכת
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -46,15 +49,13 @@ jobs:
             autoconf automake libtool zip unzip cmake gettext pkg-config \
             libncurses5-dev libncursesw5-dev libtinfo5
 
-      # 5. התקנת הכלים (הסטנדרט המודרני)
-      - name: Install Buildozer & Kivy Stack
+      - name: Install Buildozer & Kivy
         run: |
           pip install --upgrade pip
           pip install "cython==3.0.11"
           pip install "kivy==2.3.0"
           pip install "buildozer==1.5.0"
 
-      # 6. יצירת קובץ הגדרות ידני (Spec File)
       - name: Create Buildozer Spec
         run: |
           rm -f buildozer.spec
@@ -85,17 +86,24 @@ jobs:
           warn_on_root = 1
           EOT
 
-      # 7. בנייה עם "מלכודת שגיאות"
-      # הפקודה הזו מריצה את הבנייה ושומרת את הפלט לקובץ.
-      # אם הבנייה נכשלת (||), היא מדפיסה את 200 השורות האחרונות (tail) כדי שנראה את השגיאה.
+      # שלב הבנייה הדיאגנוסטי
+      # שומר את הלוג לקובץ, ואם נכשל - מציג את הסוף שלו
       - name: Build APK
         run: |
-          yes | buildozer android debug > build.log 2>&1 || (cat build.log | tail -n 200 && exit 1)
+          buildozer android debug > build_output.txt 2>&1 || (echo "BUILD FAILED! Showing last 200 lines of log:" && tail -n 200 build_output.txt && exit 1)
 
-      # 8. העלאה
+      # העלאת ה-APK אם הצליח
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: kmc-app-apk
           path: bin/*.apk
+
+      # העלאת הלוג אם נכשל (כדי שנוכל לקרוא אותו)
+      - name: Upload Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-failure-log
+          path: build_output.txt
