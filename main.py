@@ -21,8 +21,7 @@ class KMCAndroidApp(App):
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1)))
         
-        # הנחיה מעודכנת למשתמש
-        self.log_label = Label(text="Click 'FORCE DETECT USB' to scan system mounts", size_hint_y=None, markup=True)
+        self.log_label = Label(text="Click 'FORCE DETECT USB' to find drive E65A...", size_hint_y=None, markup=True)
         self.log_label.bind(texture_size=self.log_label.setter('size'))
         scroll = ScrollView(size_hint=(1, 0.65))
         scroll.add_widget(self.log_label)
@@ -94,8 +93,7 @@ class KMCAndroidApp(App):
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
         
-        # שינינו את שם הכפתור והפונקציה
-        btn_usb = Button(text="FORCE DETECT USB (Linux Method)", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
+        btn_usb = Button(text="FORCE DETECT USB (Smart)", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
         btn_usb.bind(on_press=self.find_usb_via_linux_mounts)
         content.add_widget(btn_usb)
 
@@ -121,10 +119,10 @@ class KMCAndroidApp(App):
         self._popup.open()
 
     def find_usb_via_linux_mounts(self, instance):
-        # שיטה 3: קריאת קובץ ה-Mounts של לינוקס
-        # זה עוקף את השקרים של אנדרואיד ומראה מה מחובר באמת
-        self.log("Reading /proc/mounts...", "cccccc")
-        found_paths = []
+        # שיטה חכמה: מחפשת ספציפית את media_rw
+        self.log("Scanning system mounts...", "cccccc")
+        
+        usb_found_path = None
         
         try:
             with open("/proc/mounts", "r") as f:
@@ -133,35 +131,32 @@ class KMCAndroidApp(App):
             for line in lines:
                 parts = line.split()
                 if len(parts) < 2: continue
-                
-                device = parts[0]
                 path = parts[1]
                 
-                # סינון: אנחנו מחפשים דברים ב-/storage או /mnt
-                # אבל לא את הזיכרון הפנימי (emulated) ולא קבצי מערכת (self/proc)
-                if "/storage" in path or "/mnt" in path:
-                    if "emulated" not in path and "self" not in path and "asec" not in path and "obb" not in path:
-                        found_paths.append(path)
-                        self.log(f"Found Mount: {path}", "00ff00")
-            
-            if found_paths:
-                # לוקחים את הראשון שנמצא (בדרך כלל ה-USB)
-                # לפעמים הנתיב הוא /mnt/media_rw/XXXX וצריך לגשת אליו דרך /storage/XXXX
-                # אז נעשה מניפולציה קטנה
-                final_path = found_paths[0]
-                
-                # תיקון נפוץ: אם המערכת נותנת /mnt/media_rw, ננסה להמיר ל-/storage שנגיש יותר
-                if "/mnt/media_rw/" in final_path:
-                     storage_ver = final_path.replace("/mnt/media_rw/", "/storage/")
-                     if os.path.exists(storage_ver):
-                         final_path = storage_ver
+                # אנחנו מחפשים שורה שמכילה media_rw
+                # זה הטריק! כי ראינו בלוג שלך שהכונן מופיע ככה
+                if "/mnt/media_rw" in path:
+                    self.log(f"Potential USB: {path}", "00ff00")
+                    usb_found_path = path
+                    
+                    # המרה מ-/mnt (חסום) ל-/storage (פתוח)
+                    # הנתיב שלך הוא /mnt/media_rw/E65A-046E
+                    # אנחנו צריכים להפוך אותו ל: /storage/E65A-046E
+                    possible_storage_path = path.replace("/mnt/media_rw", "/storage")
+                    
+                    if os.path.exists(possible_storage_path):
+                        self.log(f"Converted to Storage: {possible_storage_path}", "00ff00")
+                        usb_found_path = possible_storage_path
+                    
+                    # מצאנו! אין טעם להמשיך לחפש
+                    break
 
-                self.file_chooser.path = final_path
+            if usb_found_path:
+                self.file_chooser.path = usb_found_path
                 self.file_chooser._update_files()
-                self.log(f"Jumped to: {final_path}", "00ff00")
+                self.log(f"JUMPING TO: {usb_found_path}", "00ff00")
             else:
-                self.log("No external mounts found in /proc/mounts", "ffff00")
-                self.log("Try formatting USB to FAT32", "ff5555")
+                self.log("USB not found in mounts. Is it FAT32?", "ff5555")
 
         except Exception as e:
             self.log(f"Linux Mount Error: {e}", "ff0000")
