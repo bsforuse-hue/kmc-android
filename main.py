@@ -11,8 +11,6 @@ import os
 import re
 import time
 
-MSG_TYPES = {0x01: "REPLACE_ALL", 0x03: "ADD_AUTH (KMAC)", 0x41: "RESPONSE"}
-
 class KMCAndroidApp(App):
     def build(self):
         self.check_permissions_startup()
@@ -21,7 +19,7 @@ class KMCAndroidApp(App):
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1)))
         
-        self.log_label = Label(text="Click 'FORCE DETECT USB'...", size_hint_y=None, markup=True)
+        self.log_label = Label(text="Click 'GOTO USB' to jump to external drive", size_hint_y=None, markup=True)
         self.log_label.bind(texture_size=self.log_label.setter('size'))
         scroll = ScrollView(size_hint=(1, 0.65))
         scroll.add_widget(self.log_label)
@@ -92,17 +90,18 @@ class KMCAndroidApp(App):
     def show_load_popup(self, instance):
         content = BoxLayout(orientation='vertical', spacing=5)
         
-        btn_usb = Button(text="FORCE DETECT USB", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
-        btn_usb.bind(on_press=self.find_usb_via_linux_mounts)
+        # כפתור פשוט וישיר
+        btn_usb = Button(text="GOTO /STORAGE (Find USB)", size_hint_y=0.1, background_color=(0, 0.5, 0.8, 1))
+        btn_usb.bind(on_press=self.goto_storage_root)
         content.add_widget(btn_usb)
 
         # התחלה מוגדרת היטב
         start_path = "/storage/emulated/0/"
         
-        # כאן אנחנו מגדירים rootpath רחב יותר כדי לאפשר תנועה
+        # הגדרת rootpath רחב
         self.file_chooser = FileChooserListView(
             path=start_path, 
-            rootpath="/storage",  # זה השינוי הקריטי - מאפשר לראות הכל תחת storage
+            rootpath="/storage", 
             dirselect=True, 
             filters=['*.req', '*.rsp', '*']
         )
@@ -121,38 +120,32 @@ class KMCAndroidApp(App):
         self._popup = Popup(title="Choose Folder", content=content, size_hint=(0.95, 0.95))
         self._popup.open()
 
-    def find_usb_via_linux_mounts(self, instance):
-        self.log("Scanning mounts...", "cccccc")
-        usb_found_path = None
+    def goto_storage_root(self, instance):
+        # הפונקציה הכי פשוטה שיש: לך ל-/storage ותראה מה יש שם
+        target = "/storage"
+        self.log(f"Listing {target}...", "cccccc")
         
         try:
-            with open("/proc/mounts", "r") as f:
-                lines = f.readlines()
+            # 1. קודם כל מנווטים לשורש
+            self.file_chooser.rootpath = "/storage"
+            self.file_chooser.path = target
+            self.file_chooser._update_files()
             
-            for line in lines:
-                parts = line.split()
-                if len(parts) < 2: continue
-                path = parts[1]
+            # 2. מנסים למצוא תיקייה שהיא לא המערכת
+            items = os.listdir(target)
+            usb_candidates = [x for x in items if x not in ['emulated', 'self']]
+            
+            if usb_candidates:
+                # מצאנו משהו! (למשל E65A-046E)
+                usb_path = os.path.join(target, usb_candidates[0])
+                self.log(f"Found External: {usb_candidates[0]}", "00ff00")
                 
-                if "/mnt/media_rw" in path:
-                    # המרה לנתיב storage שפתוח לקריאה
-                    possible_storage_path = path.replace("/mnt/media_rw", "/storage")
-                    
-                    if os.path.exists(possible_storage_path):
-                        usb_found_path = possible_storage_path
-                        self.log(f"Found USB: {usb_found_path}", "00ff00")
-                        break
-
-            if usb_found_path:
-                # טריק: שחרור הנעילה ורענון
-                # אנחנו משנים את ה-rootpath לתיקיית ה-USB עצמה כדי להכריח את הרכיב להיכנס לשם
-                self.file_chooser.rootpath = "/storage" 
-                self.file_chooser.path = usb_found_path
+                # כניסה פנימה
+                self.file_chooser.path = usb_path
                 self.file_chooser._update_files()
-                
-                self.log(f"SUCCESS: Jumped to {usb_found_path}", "00ff00")
             else:
-                self.log("No USB found via mounts.", "ff5555")
+                self.log("No external drive detected in /storage.", "ffff00")
+                self.log("You are now in /storage. Look manually.", "cccccc")
 
         except Exception as e:
             self.log(f"Error: {e}", "ff0000")
