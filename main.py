@@ -1,209 +1,183 @@
 import kivy
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
-from kivy.uix.popup import Popup
-from kivy.uix.filechooser import FileChooserListView
 from kivy.utils import platform
-from kivy.metrics import dp
+from kivy.clock import Clock
 import os
-import re
+import shutil
 import time
+
+# ייבוא ספריות אנדרואיד (רק אם רץ על אנדרואיד)
+if platform == 'android':
+    from android import activity
+    from jnius import autoclass, cast
+    
+    Intent = autoclass('android.content.Intent')
+    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+    Context = autoclass('android.content.Context')
+    Uri = autoclass('android.net.Uri')
 
 class KMCAndroidApp(App):
     def build(self):
         self.check_permissions_startup()
-        self.last_scanned_path = "/storage/emulated/0/Download"
         
-        self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        # --- עיצוב המסך: חלוקה נוקשה כדי שכלום לא יעלם ---
+        self.root = BoxLayout(orientation='vertical', padding=5, spacing=5)
         
-        self.layout.add_widget(Label(text="KMC Analyzer Pro", font_size='24sp', color=(0,1,0,1), size_hint_y=None, height=dp(50)))
+        # 1. אזור עליון: כותרת + לוגים (65% גובה)
+        top_section = BoxLayout(orientation='vertical', size_hint_y=0.65)
+        top_section.add_widget(Label(text="KMC Analyzer Pro", font_size='22sp', color=(0,1,0,1), size_hint_y=0.15))
         
-        self.log_label = Label(text="Ready.\nClick 'DETECT USB' to start.", size_hint_y=None, markup=True)
+        self.log_label = Label(text="Welcome.\nChoose an option below.", size_hint_y=None, markup=True, font_size='16sp')
         self.log_label.bind(texture_size=self.log_label.setter('size'))
         
-        scroll = ScrollView(size_hint_y=1)
+        scroll = ScrollView(size_hint_y=0.85)
         scroll.add_widget(self.log_label)
-        self.layout.add_widget(scroll)
+        top_section.add_widget(scroll)
+        self.root.add_widget(top_section)
         
-        btn_fix = Button(text="FIX PERMISSIONS", size_hint_y=None, height=dp(60), background_color=(0.8, 0, 0, 1))
+        # 2. אזור תחתון: כפתורים (35% גובה) - קבוע, לא נגלל
+        bottom_section = GridLayout(cols=1, spacing=5, size_hint_y=0.35)
+        
+        # כפתור אדום: תיקון הרשאות
+        btn_fix = Button(text="1. FIX PERMISSIONS", background_color=(0.8, 0, 0, 1))
         btn_fix.bind(on_press=self.open_settings_manual)
-        self.layout.add_widget(btn_fix)
+        bottom_section.add_widget(btn_fix)
         
-        btn_browse = Button(text="OPEN BROWSER / DETECT USB", size_hint_y=None, height=dp(80), background_color=(1, 0.6, 0.2, 1))
-        btn_browse.bind(on_press=self.show_load_popup)
-        self.layout.add_widget(btn_browse)
+        # כפתור כחול: יבוא מהמערכת (הפתרון ל-USB)
+        btn_import = Button(text="2. IMPORT FROM USB (System Picker)", background_color=(0, 0.5, 1, 1))
+        btn_import.bind(on_press=self.open_native_picker)
+        bottom_section.add_widget(btn_import)
 
-        bottom_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=None, height=dp(60))
+        # כפתור כתום: סריקת הורדות (גיבוי)
+        btn_scan_dl = Button(text="3. SCAN 'DOWNLOAD' FOLDER", background_color=(1, 0.6, 0, 1))
+        btn_scan_dl.bind(on_press=self.scan_downloads)
+        bottom_section.add_widget(btn_scan_dl)
+        
+        # שורה תחתונה: שמירה ויציאה
+        footer = BoxLayout(spacing=5)
         btn_save = Button(text="SAVE LOG", background_color=(0, 0.8, 0, 1))
         btn_save.bind(on_press=self.save_log)
-        btn_exit = Button(text="EXIT", background_color=(0.3, 0.3, 0.3, 1))
+        btn_exit = Button(text="EXIT", background_color=(0.4, 0.4, 0.4, 1))
         btn_exit.bind(on_press=self.exit_app)
+        footer.add_widget(btn_save)
+        footer.add_widget(btn_exit)
         
-        bottom_layout.add_widget(btn_save)
-        bottom_layout.add_widget(btn_exit)
-        return self.layout
-
-    def check_permissions_startup(self):
+        bottom_section.add_widget(footer)
+        self.root.add_widget(bottom_section)
+        
+        # רישום לקבלת קבצים מהמערכת
         if platform == 'android':
-            try:
-                from jnius import autoclass
-                from android.permissions import request_permissions, Permission
-                request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE, Permission.MANAGE_EXTERNAL_STORAGE])
-            except: pass
-
-    def show_load_popup(self, instance):
-        content = BoxLayout(orientation='vertical', spacing=5)
-        
-        # הכפתור החדש שמפעיל את הטריק
-        btn_usb = Button(text="DETECT USB (Private App Path)", size_hint_y=None, height=dp(60), background_color=(0, 0.5, 0.8, 1))
-        btn_usb.bind(on_press=self.find_usb_via_app_folder)
-        content.add_widget(btn_usb)
-
-        start_path = "/storage/emulated/0/Download"
-        if not os.path.exists(start_path): start_path = "/"
-
-        self.file_chooser = FileChooserListView(
-            path=start_path, 
-            rootpath="/storage", 
-            dirselect=True, 
-            filters=['*.req', '*.rsp', '*']
-        )
-        content.add_widget(self.file_chooser)
-        
-        btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=5)
-        btn_select = Button(text="Scan Folder", background_color=(0, 1, 0, 1))
-        btn_select.bind(on_press=self.load_folder)
-        btn_cancel = Button(text="Cancel", background_color=(0.5, 0.5, 0.5, 1))
-        btn_cancel.bind(on_press=self.dismiss_popup)
-        
-        btn_layout.add_widget(btn_select)
-        btn_layout.add_widget(btn_cancel)
-        content.add_widget(btn_layout)
-        
-        self._popup = Popup(title="File Browser", content=content, size_hint=(0.95, 0.95))
-        self._popup.open()
-
-    def find_usb_via_app_folder(self, instance):
-        self.log("Asking for App External Dirs...", "cccccc")
-        
-        if platform != 'android':
-            self.log("Not on Android!", "ff0000")
-            return
-
-        try:
-            from jnius import autoclass
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            context = PythonActivity.mActivity.getApplicationContext()
+            activity.bind(on_activity_result=self.on_activity_result)
             
-            # מבקש מאנדרואיד: תביא לי את כל התיקיות ששייכות לי (פנימי וחיצוני)
-            # זה מחזיר רשימה של נתיבים "בטוחים" שאנדרואיד יצר עבורנו
-            external_files_dirs = context.getExternalFilesDirs(None)
-            
-            usb_found = False
-            
-            for f in external_files_dirs:
-                if f is None: continue
-                
-                # המרת אובייקט Java למחרוזת Python
-                path = f.getAbsolutePath()
-                
-                # נתיב פנימי נראה ככה: /storage/emulated/0/Android/data/...
-                # נתיב חיצוני נראה ככה: /storage/E65A-046E/Android/data/...
-                
-                if "emulated" not in path:
-                    self.log(f"Found Safe Path: {path}", "cccccc")
-                    
-                    # ניתוח הנתיב כדי למצוא את השורש
-                    # אנחנו מפרקים לפי '/' ולוקחים את החלקים הראשונים
-                    parts = path.split("/")
-                    # parts[0] = ""
-                    # parts[1] = "storage"
-                    # parts[2] = "E65A-046E" (ה-ID של הכונן!)
-                    
-                    if len(parts) > 2:
-                        usb_root = f"/{parts[1]}/{parts[2]}" # בונים מחדש: /storage/E65A-046E
-                        
-                        self.log(f"Derived Root: {usb_root}", "00ff00")
-                        
-                        if os.path.exists(usb_root):
-                            self.file_chooser.path = usb_root
-                            self.file_chooser._update_files()
-                            self.log("SUCCESS! Jumped to USB.", "00ff00")
-                            usb_found = True
-                            return
-
-            if not usb_found:
-                self.log("No external app folder found.", "ff5555")
-                self.log("Try: 1. Reconnect USB. 2. Restart App.", "ffff00")
-
-        except Exception as e:
-            self.log(f"Error: {e}", "ff0000")
-
-    def open_settings_manual(self, instance):
-        if platform == 'android':
-            try:
-                from jnius import autoclass
-                PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                Intent = autoclass('android.content.Intent')
-                Settings = autoclass('android.provider.Settings')
-                Uri = autoclass('android.net.Uri')
-                intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                uri = Uri.parse("package:" + PythonActivity.mActivity.getPackageName())
-                intent.setData(uri)
-                PythonActivity.mActivity.startActivity(intent)
-            except: pass
+        return self.root
 
     def log(self, text, color="ffffff"):
         self.log_label.text += f"\n[color={color}]{text}[/color]"
 
-    def save_log(self, instance):
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"KMC_Log_{timestamp}.txt"
-        target_path = os.path.join(self.last_scanned_path, filename)
-        clean_text = re.sub(r'\[.*?\]', '', self.log_label.text)
-        try:
-            with open(target_path, 'w', encoding='utf-8') as f: f.write(clean_text)
-            self.log(f"\nSaved to: {target_path}", "00ff00")
-        except:
-            backup = f"/storage/emulated/0/Download/{filename}"
+    # --- לוגיקה 1: יבוא קבצים דרך המערכת (הפתרון ל-USB) ---
+    def open_native_picker(self, instance):
+        if platform == 'android':
+            self.log("Opening System File Picker...", "cccccc")
             try:
-                with open(backup, 'w', encoding='utf-8') as f: f.write(clean_text)
-                self.log(f"Saved to backup: {backup}", "ffff00")
-            except Exception as e: self.log(f"Save Failed: {e}", "ff0000")
-
-    def exit_app(self, instance):
-        App.get_running_app().stop()
-
-    def dismiss_popup(self, instance):
-        self._popup.dismiss()
-
-    def load_folder(self, instance):
-        path = self.file_chooser.path
-        self.dismiss_popup(instance)
-        self.last_scanned_path = path
-        self.scan_files(path)
-
-    def scan_files(self, path):
-        self.log_label.text = f"Scanning: {path}..."
-        try:
-            if not os.access(path, os.R_OK):
-                self.log(f"READ DENIED.", "ff0000")
-                return
-
-            files = [f for f in os.listdir(path) if f.lower().endswith(('.req', '.rsp'))]
-            if not files:
-                self.log("No .req/.rsp files found.", "ffff00")
-                return
-            
-            for f_name in files:
-                self.analyze(os.path.join(path, f_name), f_name)
+                intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+                intent.addCategory(Intent.CATEGORY_OPENABLE)
+                intent.setType("*/*") # אפשר לשנות לסוג ספציפי
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, True)
                 
-        except Exception as e:
-            self.log(f"Error: {e}", "ff0000")
+                # קוד קסם שמפעיל את הבחירה
+                PythonActivity.mActivity.startActivityForResult(intent, 0x123)
+            except Exception as e:
+                self.log(f"Error launching picker: {e}", "ff0000")
+        else:
+            self.log("Not on Android", "ff0000")
 
+    def on_activity_result(self, request_code, result_code, intent):
+        if request_code != 0x123: return
+        
+        if result_code != -1: # RESULT_OK
+            self.log("Selection canceled.", "ffff00")
+            return
+            
+        self.log("Processing files...", "00ff00")
+        
+        # תיקייה זמנית לעבודה
+        dest_folder = "/storage/emulated/0/Download/KMC_Import"
+        if not os.path.exists(dest_folder):
+            os.makedirs(dest_folder)
+            
+        # ניקוי ישן
+        for f in os.listdir(dest_folder):
+            try: os.remove(os.path.join(dest_folder, f))
+            except: pass
+
+        try:
+            context = PythonActivity.mActivity.getApplicationContext()
+            resolver = context.getContentResolver()
+            
+            uris = []
+            if intent.getData():
+                uris.append(intent.getData())
+            elif intent.getClipData():
+                clip = intent.getClipData()
+                for i in range(clip.getItemCount()):
+                    uris.append(clip.getItemAt(i).getUri())
+            
+            count = 0
+            for uri in uris:
+                # קריאת הקובץ מה-USB דרך ה-Stream
+                input_stream = resolver.openInputStream(uri)
+                
+                # ניסיון לחלץ שם (מסובך, ניתן שם גנרי אם צריך)
+                filename = f"file_{count}.req" 
+                
+                # שמירה לתיקייה שלנו
+                with open(os.path.join(dest_folder, filename), 'wb') as f:
+                    # קריאת גושים
+                    buffer = bytearray(4096)
+                    while True:
+                        read = input_stream.read(buffer)
+                        if read == -1: break
+                        f.write(buffer[:read])
+                
+                input_stream.close()
+                count += 1
+            
+            self.log(f"Imported {count} files to:", "00ff00")
+            self.log(f"{dest_folder}", "cccccc")
+            self.scan_folder_path(dest_folder)
+            
+        except Exception as e:
+            self.log(f"Import Error: {e}", "ff0000")
+
+    # --- לוגיקה 2: סריקה רגילה ---
+    def scan_downloads(self, instance):
+        path = "/storage/emulated/0/Download"
+        self.scan_folder_path(path)
+
+    def scan_folder_path(self, path):
+        self.log(f"Analyzing: {path}", "cccccc")
+        if not os.path.exists(path):
+            self.log("Folder not found!", "ff0000")
+            return
+            
+        files = [f for f in os.listdir(path) if f.lower().endswith(('.req', '.rsp'))]
+        if not files:
+            # אם אין קבצים עם סיומת, נסרוק את הכל (אולי השם השתנה ביבוא)
+            files = os.listdir(path)
+        
+        if not files:
+            self.log("No files found.", "ffff00")
+            return
+
+        for f_name in files:
+            self.analyze(os.path.join(path, f_name), f_name)
+
+    # --- שאר הפונקציות (ניתוח, הרשאות, שמירה) ---
     def analyze(self, filepath, filename):
         try:
             with open(filepath, 'rb') as f: data = f.read(64)
@@ -225,6 +199,35 @@ class KMCAndroidApp(App):
             self.log(f"{filename}\n{info} | {status}", color)
             self.log("- - -", "555555")
         except: pass
+
+    def check_permissions_startup(self):
+        if platform == 'android':
+            try:
+                from android.permissions import request_permissions, Permission
+                request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE, Permission.MANAGE_EXTERNAL_STORAGE])
+            except: pass
+
+    def open_settings_manual(self, instance):
+        if platform == 'android':
+            try:
+                intent = Intent('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION')
+                uri = Uri.parse("package:" + PythonActivity.mActivity.getPackageName())
+                intent.setData(uri)
+                PythonActivity.mActivity.startActivity(intent)
+            except: pass
+
+    def save_log(self, instance):
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"KMC_Log_{timestamp}.txt"
+        target_path = f"/storage/emulated/0/Download/{filename}"
+        clean_text = self.log_label.text.replace('[color=ffffff]', '').replace('[/color]', '').replace('[color=00ff00]', '').replace('[color=ff0000]', '').replace('[color=cccccc]', '').replace('[color=ffff00]', '')
+        try:
+            with open(target_path, 'w', encoding='utf-8') as f: f.write(clean_text)
+            self.log(f"\nSaved Log to Downloads!", "00ff00")
+        except Exception as e: self.log(f"Save Failed: {e}", "ff0000")
+
+    def exit_app(self, instance):
+        App.get_running_app().stop()
 
 if __name__ == '__main__':
     KMCAndroidApp().run()
