@@ -31,7 +31,6 @@ jobs:
         with:
           python-version: '3.10'
 
-      # התקנת כל התלויות כולל autopoint
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -62,29 +61,33 @@ jobs:
           package.domain = org.kmc
           source.dir = .
           source.include_exts = py,png,jpg,kv,atlas
-          version = 0.1
+          version = 0.2
+          
           requirements = python3,kivy==2.3.0
+          
           orientation = portrait
           fullscreen = 0
-          android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE
+          
+          # Special permission for Android 11+ to access all files
+          android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE
+          
           android.api = 33
           android.minapi = 21
           android.ndk = 25b
           android.accept_sdk_license = True
           android.archs = arm64-v8a
+          
           [buildozer]
           log_level = 2
           warn_on_root = 1
           EOT
 
-      # בנייה חכמה: set -o pipefail מוודא שאם הבנייה נכשלת, הצעד ייחשב ככישלון
       - name: Build APK
         shell: bash
         run: |
           set -o pipefail
           buildozer android debug 2>&1 | tee build.log
 
-      # העלאת ה-APK (רק אם נוצר)
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
@@ -92,7 +95,6 @@ jobs:
           name: kmc-app-apk
           path: bin/*.apk
 
-      # העלאת הלוג תמיד (גם אם נכשל!) - זה יאפשר לנו לראות מה קרה
       - name: Upload Build Log
         if: always()
         uses: actions/upload-artifact@v4
