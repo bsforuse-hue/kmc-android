@@ -19,6 +19,8 @@ if platform == 'android':
     PythonActivity = autoclass('org.kivy.android.PythonActivity')
     Context = autoclass('android.content.Context')
     Uri = autoclass('android.net.Uri')
+    # הוספנו את זה כדי לזהות שמות קבצים
+    File = autoclass('java.io.File') 
 
 class KMCAndroidApp(App):
     def build(self):
@@ -79,7 +81,7 @@ class KMCAndroidApp(App):
             try:
                 intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
                 intent.addCategory(Intent.CATEGORY_OPENABLE)
-                intent.setType("*/*")
+                intent.setType("*/*") # אפשר לשנות ל application/octet-stream אם רוצים לסנן
                 intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, True)
                 PythonActivity.mActivity.startActivityForResult(intent, 0x123)
             except Exception as e:
@@ -97,6 +99,7 @@ class KMCAndroidApp(App):
         dest_folder = "/storage/emulated/0/Download/KMC_Import"
         if not os.path.exists(dest_folder): os.makedirs(dest_folder)
             
+        # ניקוי תיקיית היעד לפני ייבוא חדש
         for f in os.listdir(dest_folder):
             try: os.remove(os.path.join(dest_folder, f))
             except: pass
@@ -112,8 +115,25 @@ class KMCAndroidApp(App):
             
             count = 0
             for uri in uris:
+                # --- קטע הקוד החדש לשליפת השם המקורי ---
+                original_name = None
+                cursor = resolver.query(uri, None, None, None, None)
+                if cursor:
+                    if cursor.moveToFirst():
+                        # אינדקס העמודה שמחזיקה את שם הקובץ
+                        name_idx = cursor.getColumnIndex("_display_name")
+                        if name_idx != -1:
+                            original_name = cursor.getString(name_idx)
+                    cursor.close()
+                
+                # אם לא הצלחנו להשיג שם, נשתמש בברירת מחדל
+                if not original_name:
+                    original_name = f"imported_file_{count}.req"
+                
+                filename = original_name
+                # ----------------------------------------
+
                 input_stream = resolver.openInputStream(uri)
-                filename = f"file_{count}.req" 
                 with open(os.path.join(dest_folder, filename), 'wb') as f:
                     buffer = bytearray(4096)
                     while True:
@@ -142,17 +162,19 @@ class KMCAndroidApp(App):
         files = [f for f in os.listdir(path) if f.lower().endswith(('.req', '.rsp'))]
         if not files: files = os.listdir(path)
         
+        # --- תיקון: מיון הקבצים לפי סדר האלפבית ---
+        files.sort() 
+        # -----------------------------------------
+
         if not files:
             self.log("No files found.", "ffff00")
             return
 
-        # משתנים לסיכום
         total_files = 0
         success_count = 0
         other_count = 0
 
         for f_name in files:
-            # הפונקציה מחזירה עכשיו את הסטטוס
             result_status = self.analyze(os.path.join(path, f_name), f_name)
             
             if result_status:
@@ -162,17 +184,15 @@ class KMCAndroidApp(App):
                 else:
                     other_count += 1
         
-        # הדפסת טבלת סיכום בסוף הלוג
         self.log("\n==============================", "cccccc")
         self.log(f"      SUMMARY REPORT", "ffffff")
         self.log("==============================", "cccccc")
         self.log(f" Total Processed : {total_files}", "ffffff")
-        self.log(f" Success         : {success_count}", "00ff00")
-        self.log(f" Other / Error   : {other_count}", "ff5555")
+        self.log(f" Success          : {success_count}", "00ff00")
+        self.log(f" Other / Error    : {other_count}", "ff5555")
         self.log("==============================\n", "cccccc")
 
     def analyze(self, filepath, filename):
-        # שיניתי את הפונקציה כדי שתחזיר ערך (סטטוס) לצורך ספירה
         try:
             with open(filepath, 'rb') as f: data = f.read(64)
             if len(data) < 25: return None
@@ -191,11 +211,12 @@ class KMCAndroidApp(App):
                 nid = int.from_bytes(data[5:9][1:], 'big')
                 info = f"REQ (NID {nid})"
             
+            # כאן אנחנו מדפיסים את שם הקובץ האמיתי שנשמר
             color = "ff5555" if "Err" in status else "00ff00"
             self.log(f"{filename}\n{info} | {status}", color)
             self.log("- - -", "555555")
             
-            return status # החזרת הסטטוס למונה
+            return status
             
         except: 
             return None
@@ -217,4 +238,25 @@ class KMCAndroidApp(App):
             except: pass
 
     def save_log(self, instance):
-        timestamp = time.
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"KMC_Log_{timestamp}.txt"
+        target_path = f"/storage/emulated/0/Download/{filename}"
+        
+        clean_text = self.log_label.text
+        for color in ['ffffff', '00ff00', 'ff0000', 'cccccc', 'ffff00', 'ff5555']:
+            clean_text = clean_text.replace(f'[color={color}]', '').replace('[/color]', '')
+            
+        try:
+            with open(target_path, 'w', encoding='utf-8') as f: f.write(clean_text)
+            self.log(f"\n========================", "00ff00")
+            self.log(f"LOG SAVED SUCCESSFULLY:", "00ff00")
+            self.log(f"{target_path}", "ffff00")
+            self.log(f"========================", "00ff00")
+            
+        except Exception as e: self.log(f"Save Failed: {e}", "ff0000")
+
+    def exit_app(self, instance):
+        App.get_running_app().stop()
+
+if __name__ == '__main__':
+    KMCAndroidApp().run()
