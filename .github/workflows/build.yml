@@ -8,14 +8,13 @@ on:
 
 jobs:
   build:
-    # שינוי קריטי: משתמשים ב-22.04 במקום latest כדי למנוע בעיות תאימות
     runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # שלב 1: פינוי מקום בדיסק
+    # שלב 1: פינוי מקום בדיסק (מונע קריסות באמצע)
     - name: Free Disk Space
       uses: jlumbroso/free-disk-space@main
       with:
@@ -26,7 +25,7 @@ jobs:
         large-packages: true
         swap-storage: true
 
-    # שלב 2: התקנת תלויות (מותאם ל-Ubuntu 22.04)
+    # שלב 2: התקנת ספריות לינוקס הכרחיות
     - name: Install System Dependencies
       run: |
         sudo apt-get update
@@ -62,23 +61,19 @@ jobs:
       with:
         python-version: '3.10'
 
-    # שלב 5: התקנת Buildozer
-    - name: Install Buildozer and Cython
+    # שלב 5: התקנת Buildozer עם התיקון הקריטי ל-Cython
+    # שינוי קריטי: אנחנו מכריחים התקנה של גרסה ישנה של Cython
+    - name: Install Buildozer and Dependencies
       run: |
         pip install --upgrade pip
-        pip install buildozer cython
+        pip install "cython<3" buildozer
 
-    # שלב 6: הרצת הבנייה
-    # הסרנו את "yes |" והוספנו את המשתנה שמסכים אוטומטית לרישיונות
+    # שלב 6: ביצוע הבנייה
     - name: Build with Buildozer
-      env:
-        # זה הפתרון הנכון לאשר רישיונות אוטומטית
-        yes: "y" 
       run: |
-        # בנייה במצב Debug ושימוש ב-log_level 2 כדי לראות שגיאות אם יש
-        yes | buildozer android debug || buildozer android debug
+        yes | buildozer -v android debug
 
-    # שלב 7: העלאת הקובץ
+    # שלב 7: שמירת הקובץ המוכן
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
