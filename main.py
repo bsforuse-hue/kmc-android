@@ -6,12 +6,11 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.utils import platform
-from kivy.clock import Clock # נדרש לגלילה אוטומטית
+from kivy.clock import Clock
 import os
 import shutil
 import time
 
-# ייבוא ספריות אנדרואיד
 if platform == 'android':
     from android import activity
     from jnius import autoclass, cast
@@ -34,7 +33,6 @@ class KMCAndroidApp(App):
         self.log_label = Label(text="Welcome.\nChoose an option below.", size_hint_y=None, markup=True, font_size='16sp')
         self.log_label.bind(texture_size=self.log_label.setter('size'))
         
-        # שמרנו את ה-ScrollView למשתנה כדי שנוכל לשלוט בו
         self.scroll_view = ScrollView(size_hint_y=0.85)
         self.scroll_view.add_widget(self.log_label)
         top_section.add_widget(self.scroll_view)
@@ -73,7 +71,6 @@ class KMCAndroidApp(App):
 
     def log(self, text, color="ffffff"):
         self.log_label.text += f"\n[color={color}]{text}[/color]"
-        # גלילה אוטומטית למטה אחרי כל עדכון
         Clock.schedule_once(lambda dt: setattr(self.scroll_view, 'scroll_y', 0), 0.1)
 
     def open_native_picker(self, instance):
@@ -126,8 +123,7 @@ class KMCAndroidApp(App):
                 input_stream.close()
                 count += 1
             
-            self.log(f"Imported {count} files to:", "00ff00")
-            self.log(f"{dest_folder}", "cccccc")
+            self.log(f"Imported {count} files.", "00ff00")
             self.scan_folder_path(dest_folder)
             
         except Exception as e:
@@ -150,15 +146,39 @@ class KMCAndroidApp(App):
             self.log("No files found.", "ffff00")
             return
 
+        # משתנים לסיכום
+        total_files = 0
+        success_count = 0
+        other_count = 0
+
         for f_name in files:
-            self.analyze(os.path.join(path, f_name), f_name)
+            # הפונקציה מחזירה עכשיו את הסטטוס
+            result_status = self.analyze(os.path.join(path, f_name), f_name)
+            
+            if result_status:
+                total_files += 1
+                if result_status == "Success":
+                    success_count += 1
+                else:
+                    other_count += 1
+        
+        # הדפסת טבלת סיכום בסוף הלוג
+        self.log("\n==============================", "cccccc")
+        self.log(f"      SUMMARY REPORT", "ffffff")
+        self.log("==============================", "cccccc")
+        self.log(f" Total Processed : {total_files}", "ffffff")
+        self.log(f" Success         : {success_count}", "00ff00")
+        self.log(f" Other / Error   : {other_count}", "ff5555")
+        self.log("==============================\n", "cccccc")
 
     def analyze(self, filepath, filename):
+        # שיניתי את הפונקציה כדי שתחזיר ערך (סטטוס) לצורך ספירה
         try:
             with open(filepath, 'rb') as f: data = f.read(64)
-            if len(data) < 25: return
+            if len(data) < 25: return None
             m_type = data[24]
             info = "REQ"; status = "Pending"
+            
             if m_type == 0x41: 
                 nid = int.from_bytes(data[9:13][1:], 'big')
                 info = f"RSP (NID {nid})"
@@ -170,10 +190,15 @@ class KMCAndroidApp(App):
             else:
                 nid = int.from_bytes(data[5:9][1:], 'big')
                 info = f"REQ (NID {nid})"
+            
             color = "ff5555" if "Err" in status else "00ff00"
             self.log(f"{filename}\n{info} | {status}", color)
             self.log("- - -", "555555")
-        except: pass
+            
+            return status # החזרת הסטטוס למונה
+            
+        except: 
+            return None
 
     def check_permissions_startup(self):
         if platform == 'android':
@@ -192,28 +217,4 @@ class KMCAndroidApp(App):
             except: pass
 
     def save_log(self, instance):
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"KMC_Log_{timestamp}.txt"
-        target_path = f"/storage/emulated/0/Download/{filename}"
-        
-        # ניקוי תגיות צבע לצורך שמירה בקובץ
-        clean_text = self.log_label.text
-        for color in ['ffffff', '00ff00', 'ff0000', 'cccccc', 'ffff00']:
-            clean_text = clean_text.replace(f'[color={color}]', '').replace('[/color]', '')
-            
-        try:
-            with open(target_path, 'w', encoding='utf-8') as f: f.write(clean_text)
-            
-            # הצגת הנתיב המלא על המסך + גלילה אוטומטית למטה
-            self.log(f"\n========================", "00ff00")
-            self.log(f"LOG SAVED SUCCESSFULLY:", "00ff00")
-            self.log(f"{target_path}", "ffff00")
-            self.log(f"========================", "00ff00")
-            
-        except Exception as e: self.log(f"Save Failed: {e}", "ff0000")
-
-    def exit_app(self, instance):
-        App.get_running_app().stop()
-
-if __name__ == '__main__':
-    KMCAndroidApp().run()
+        timestamp = time.
